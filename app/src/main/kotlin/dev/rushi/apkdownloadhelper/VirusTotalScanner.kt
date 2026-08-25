@@ -192,6 +192,7 @@ internal object VirusTotalScanner {
         onProgress?.invoke("Extracting ${apkNames.size} APKs from ${file.name}…")
         val tempDir = File.createTempFile("vt-bundle", "").apply { delete(); mkdirs() }
         try {
+            val total = apkNames.size
             val innerResults = mutableListOf<Pair<ScanResult, String>>()
             ZipFile(file).use { zip ->
                 apkNames.forEachIndexed { index, name ->
@@ -200,13 +201,21 @@ internal object VirusTotalScanner {
                     zip.getInputStream(zip.getEntry(name)).use { input ->
                         out.outputStream().use { output -> input.copyTo(output) }
                     }
-                    onProgress?.invoke("Scanning $name…")
-                    innerResults.add(scanFile(out, apiKey, onProgress) to name)
+                    // Prefix every per-APK status with which APK is current so the
+                    // UI shows live progress instead of a static "Checking…" that
+                    // looks stuck during the 12s rate-limit pauses between APKs.
+                    onProgress?.invoke("Scanning APK ${index + 1} of $total: $name…")
+                    innerResults.add(
+                        scanFile(out, apiKey) { status ->
+                            onProgress?.invoke("APK ${index + 1} of $total ($name): $status")
+                        } to name
+                    )
                     // The free tier allows ~4 lookups per minute, so space the
                     // per-APK lookups out instead of hammering the rate limit.
                     if (index < apkNames.size - 1) Thread.sleep(12_000)
                 }
             }
+            onProgress?.invoke("Aggregating results for ${apkNames.size} APKs…")
             return aggregateBundle(innerResults, file.name)
         } finally {
             tempDir.deleteRecursively()
