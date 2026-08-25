@@ -1269,9 +1269,19 @@ class MainActivity : ComponentActivity() {
                 val isMalicious = scanResult is VirusTotalScanner.ScanResult.Malicious
                 val detail = when (scanResult) {
                     is VirusTotalScanner.ScanResult.Clean ->
-                        "0 of ${scanResult.totalEngines} antivirus engines flagged this file"
+                        if (scanResult.scannedFiles != null) {
+                            "All ${scanResult.scannedFiles} APKs in the bundle are clean — " +
+                                "0 of ${scanResult.totalEngines} engines flagged them"
+                        } else {
+                            "0 of ${scanResult.totalEngines} antivirus engines flagged this file"
+                        }
                     is VirusTotalScanner.ScanResult.Malicious ->
-                        "${scanResult.detections} of ${scanResult.totalEngines} antivirus engines flagged this file"
+                        if (scanResult.scannedFiles != null) {
+                            "${scanResult.flaggedFiles ?: 1} of ${scanResult.scannedFiles} APKs in the " +
+                                "bundle flagged — ${scanResult.detections} of ${scanResult.totalEngines} engines"
+                        } else {
+                            "${scanResult.detections} of ${scanResult.totalEngines} antivirus engines flagged this file"
+                        }
                     is VirusTotalScanner.ScanResult.Error ->
                         "Scan error: ${scanResult.message}"
                 }
@@ -6000,6 +6010,13 @@ private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
         scanResult.timesSubmitted?.let { add("Times submitted" to it.toString()) }
         scanResult.firstSubmissionDate?.let { add("First seen" to formatScanDate(it)) }
         scanResult.lastAnalysisDate?.let { add("Last analyzed" to formatScanDate(it)) }
+        if (scanResult is VirusTotalScanner.ScanResult.Malicious) {
+            if (scanResult.scannedFiles != null && scanResult.fileName.isNotBlank()) {
+                add("Flagged APK" to scanResult.fileName)
+            }
+        }
+        scanResult.scannedFiles?.let { add("APKs scanned" to it.toString()) }
+        scanResult.bundleName?.let { add("Bundle" to it) }
         if (scanResult is VirusTotalScanner.ScanResult.Clean) {
             if (scanResult.votesHarmless > 0 || scanResult.votesMalicious > 0) {
                 add("Community votes" to "${scanResult.votesHarmless} harmless / ${scanResult.votesMalicious} malicious")

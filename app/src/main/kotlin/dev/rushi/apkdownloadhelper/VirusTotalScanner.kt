@@ -11,6 +11,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipFile
 
 /**
  * VirusTotal API v3 client for scanning downloaded APK files.
@@ -48,6 +49,9 @@ internal object VirusTotalScanner {
         val firstSubmissionDate: Long?
         val lastAnalysisDate: Long?
         val reputation: Int?
+        /** Non-null when a XAPK/APKS/APKM bundle was scanned instead of one file. */
+        val scannedFiles: Int?
+        val bundleName: String?
 
         data class Clean(
             override val sha256: String?,
@@ -60,7 +64,11 @@ internal object VirusTotalScanner {
             override val reputation: Int?,
             val totalEngines: Int,
             val votesHarmless: Int,
-            val votesMalicious: Int
+            val votesMalicious: Int,
+            // Set when a XAPK/APKS/APKM bundle was scanned: how many inner
+            // APKs were scanned and the bundle's file name.
+            override val scannedFiles: Int? = null,
+            override val bundleName: String? = null
         ) : ScanResult
 
         data class Malicious(
@@ -77,7 +85,13 @@ internal object VirusTotalScanner {
             val totalEngines: Int,
             val engines: List<EngineDetection>,
             val suggestedThreatLabel: String?,
-            val sandboxMalwareNames: List<String>
+            val sandboxMalwareNames: List<String>,
+            // Set when a XAPK/APKS/APKM bundle was scanned: how many inner
+            // APKs were scanned, how many were flagged, and the bundle name.
+            // [fileName] then names the flagged inner APK.
+            override val scannedFiles: Int? = null,
+            val flaggedFiles: Int? = null,
+            override val bundleName: String? = null
         ) : ScanResult
 
         data class Error(val message: String) : ScanResult {
@@ -89,6 +103,8 @@ internal object VirusTotalScanner {
             override val firstSubmissionDate: Long? get() = null
             override val lastAnalysisDate: Long? get() = null
             override val reputation: Int? get() = null
+            override val scannedFiles: Int? get() = null
+            override val bundleName: String? get() = null
         }
     }
 
@@ -105,6 +121,121 @@ internal object VirusTotalScanner {
         val dailyUsed: Int, val dailyAllowed: Int,
         val monthlyUsed: Int, val monthlyAllowed: Int
     )
+
+    /**
+     * Scan a downloaded file. XAPK/APKS/APKM bundles are split into their
+     * inner APKs and each one is scanned individually — engines often skip
+     * large container files — while plain APKs are scanned directly.
+     */
+    suspend fun scanDownloadedFile(
+        file: File,
+        apiKey: String,
+        onProgress: ((String) -> Unit)? = null
+    ): ScanResult {
+        val lower = file.name.lowercase()
+        val isBundle = lower.endsWith(".xapk") || lower.endsWith(".apks") || lower.endsWith(".apkm")
+        return if (isBundle) {
+            scanBundle(file, apiKey, onProgress)
+        } else {
+            scanFile(file, apiKey, onProgress)
+        }
+    }
+
+    /**
+     * Extract the inner APKs of a bundle container and scan each one,
+     * returning a combined verdict. Falls back to scanning the container
+     * itself if it contains no APK entries.
+     */
+    private suspend fun scanBundle(
+        file: File,
+        apiKey: String,
+        onProgress: ((String) -> Unit)? = null
+    ): ScanResult {
+        val apkNames = runCatching {
+            ZipFile(file).use { zip ->
+                zip.entries().asSequence()
+                    .filter { !it.isDirectory }
+                    .map { it.name }
+                    .filter { it.lowercase().endsWith(".apk") }
+                    .toList()
+            }
+        }.getOrNull()
+        if (apkNames.isNullOrEmpty()) {
+            Log.d(TAG, "${file.name} is not a ZIP of APKs — scanning the container itself.")
+            return scanFile(file, apiKey, onProgress)
+        }
+
+        onProgress?.invoke("Extracting ${apkNames.size} APKs from ${file.name}…")
+        val tempDir = File.createTempFile("vt-bundle", "").apply { delete(); mkdirs() }
+        try {
+            val innerResults = mutableListOf<Pair<ScanResult, String>>()
+            ZipFile(file).use { zip ->
+                apkNames.forEachIndexed { index, name ->
+                    val safeName = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val out = File(tempDir, safeName)
+                    zip.getInputStream(zip.getEntry(name)).use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    onProgress?.invoke("Scanning $name…")
+                    innerResults.add(scanFile(out, apiKey, onProgress) to name)
+                    // The free tier allows ~4 lookups per minute, so space the
+                    // per-APK lookups out instead of hammering the rate limit.
+                    if (index < apkNames.size - 1) Thread.sleep(12_000)
+                }
+            }
+            return aggregateBundle(innerResults, file.name)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    private fun aggregateBundle(
+        results: List<Pair<ScanResult, String>>,
+        bundleName: String
+    ): ScanResult {
+        val total = results.size
+        val malicious = results.filter { it.first is ScanResult.Malicious }
+        val errors = results.filter { it.first is ScanResult.Error }
+        val clean = results.filter { it.first is ScanResult.Clean }
+
+        if (malicious.isNotEmpty()) {
+            val worst = malicious.maxByOrNull { (r, _) -> (r as ScanResult.Malicious).detections }!!
+            val flagged = worst.first as ScanResult.Malicious
+            return flagged.copy(
+                fileName = worst.second,
+                sizeBytes = null, // would be the inner APK, confusing next to the bundle
+                scannedFiles = total,
+                flaggedFiles = malicious.size,
+                bundleName = bundleName
+            )
+        }
+        if (errors.isNotEmpty()) {
+            val firstError = (errors.first().first as ScanResult.Error).message
+            val message = if (clean.isEmpty()) {
+                "All $total APKs failed to scan: $firstError"
+            } else {
+                "${clean.size} of $total APKs scanned clean; ${errors.size} failed ($firstError)"
+            }
+            return ScanResult.Error(message)
+        }
+        val totalEngines = clean.sumOf { (it.first as ScanResult.Clean).totalEngines }
+        val firstClean = clean.first().first as ScanResult.Clean
+        return firstClean.copy(
+            fileName = bundleName,
+            sha256 = null,
+            typeDescription = null,
+            sizeBytes = null,
+            timesSubmitted = null,
+            firstSubmissionDate = null,
+            lastAnalysisDate = null,
+            reputation = null,
+            totalEngines = totalEngines,
+            votesHarmless = 0,
+            votesMalicious = 0,
+            scannedFiles = total,
+            bundleName = bundleName
+        )
+    }
 
     /**
      * Check VirusTotal for [file] and return a [ScanResult] with the detection
@@ -210,6 +341,18 @@ internal object VirusTotalScanner {
             .build()
         val response = client.newCall(request).execute()
         val body = response.body?.string() ?: return null
+        if (response.code == 429) {
+            // Rate limited: back off once and retry before giving up.
+            Log.d(TAG, "Report lookup rate limited (429), retrying after backoff.")
+            Thread.sleep(20_000)
+            val retry = client.newCall(request).execute()
+            val retryBody = retry.body?.string() ?: return null
+            if (retry.code == 404) return null
+            if (!retry.isSuccessful) {
+                throw Exception("Report lookup failed (${retry.code}): $retryBody")
+            }
+            return gson.fromJson(retryBody, FileReportResponse::class.java)
+        }
         if (response.code == 404) return null
         if (!response.isSuccessful) {
             throw Exception("Report lookup failed (${response.code}): $body")

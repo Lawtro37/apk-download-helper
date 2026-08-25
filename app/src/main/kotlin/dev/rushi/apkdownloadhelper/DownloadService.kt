@@ -495,7 +495,7 @@ internal class DownloadService : Service() {
             DownloadJobManager.Event.Scanning(candidate, "Uploading to VirusTotal…")
         )
 
-        val scanResult = VirusTotalScanner.scanFile(file, apiKey) { status ->
+        val scanResult = VirusTotalScanner.scanDownloadedFile(file, apiKey) { status ->
             DownloadJobManager.emit(
                 DownloadJobManager.Event.Scanning(candidate, status)
             )
