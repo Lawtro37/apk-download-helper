@@ -6,7 +6,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
 import java.net.InetAddress
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * OkHttp [Dns] that routes lookups through AdGuard DNS
@@ -41,6 +44,14 @@ internal object AdGuardDns : Dns {
     /** Last known blocked/not-blocked state per host, for the in-app browser. */
     private val blockedCache = ConcurrentHashMap<String, Boolean>()
 
+    // [isBlocked] runs on the WebView's request thread inside
+    // shouldInterceptRequest, so a slow resolver must never stall page loads:
+    // the lookup runs here and is abandoned after [BLOCK_CHECK_TIMEOUT_S].
+    // "Abandoned" reads as not-blocked, so browsing keeps working.
+    private val blockCheckExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "adguard-block-check").apply { isDaemon = true }
+    }
+
     private fun isBlockedAnswer(addresses: List<InetAddress>): Boolean =
         addresses.isNotEmpty() && addresses.all { it.isAnyLocalAddress }
 
@@ -68,12 +79,17 @@ internal object AdGuardDns : Dns {
         if (!adGuardDnsEnabled) return false
         blockedCache[hostname]?.let { return it }
         val blocked = try {
-            isBlockedAnswer(doh.lookup(hostname))
-        } catch (t: Throwable) {
+            blockCheckExecutor.submit(
+                Callable { runCatching { isBlockedAnswer(doh.lookup(hostname)) }.getOrDefault(false) }
+            ).get(BLOCK_CHECK_TIMEOUT_S, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            // Timeout or resolver failure: don't block, don't stall the page.
             false
         }
         if (blockedCache.size >= 1024) blockedCache.clear()
         blockedCache[hostname] = blocked
         return blocked
     }
+
+    private const val BLOCK_CHECK_TIMEOUT_S = 3L
 }
