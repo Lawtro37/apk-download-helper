@@ -1269,10 +1269,9 @@ class MainActivity : ComponentActivity() {
                 val isMalicious = scanResult is VirusTotalScanner.ScanResult.Malicious
                 val detail = when (scanResult) {
                     is VirusTotalScanner.ScanResult.Clean ->
-                        "Clean — 0/${scanResult.totalEngines} detections"
+                        "0 of ${scanResult.totalEngines} antivirus engines flagged this file"
                     is VirusTotalScanner.ScanResult.Malicious ->
-                        "${scanResult.detections}/${scanResult.totalEngines} detections: " +
-                            scanResult.detectionNames.joinToString(", ")
+                        "${scanResult.detections} of ${scanResult.totalEngines} antivirus engines flagged this file"
                     is VirusTotalScanner.ScanResult.Error ->
                         "Scan error: ${scanResult.message}"
                 }
@@ -5780,6 +5779,50 @@ private fun ScanResultCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (scanResult is VirusTotalScanner.ScanResult.Malicious) {
+                scanResult.suggestedThreatLabel?.let { label ->
+                    Text(
+                        text = "Detected as: $label",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (scanResult.engines.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        scanResult.engines.take(8).forEach { hit ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = hit.engine,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(0.38f)
+                                )
+                                Text(
+                                    text = hit.result,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(0.62f)
+                                )
+                            }
+                        }
+                        if (scanResult.engines.size > 8) {
+                            Text(
+                                text = "+${scanResult.engines.size - 8} more engines",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
             if (isMalicious) {
                 Text(
                     text = "This file was flagged by antivirus engines. " +
@@ -5795,6 +5838,7 @@ private fun ScanResultCard(
                     color = MaterialTheme.colorScheme.error
                 )
             }
+            ScanMetaRows(scanResult)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -5812,6 +5856,55 @@ private fun ScanResultCard(
             }
         }
     }
+}
+
+@Composable
+private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
+    if (scanResult is VirusTotalScanner.ScanResult.Error) return
+    val rows = buildList {
+        scanResult.typeDescription?.let { add("Type" to it) }
+        scanResult.sizeBytes?.let { add("Size" to it.formatBytes()) }
+        scanResult.sha256?.let { add("SHA-256" to it.take(16) + "…") }
+        scanResult.timesSubmitted?.let { add("Times submitted" to it.toString()) }
+        scanResult.firstSubmissionDate?.let { add("First seen" to formatScanDate(it)) }
+        scanResult.lastAnalysisDate?.let { add("Last analyzed" to formatScanDate(it)) }
+        if (scanResult is VirusTotalScanner.ScanResult.Clean) {
+            if (scanResult.votesHarmless > 0 || scanResult.votesMalicious > 0) {
+                add("Community votes" to "${scanResult.votesHarmless} harmless / ${scanResult.votesMalicious} malicious")
+            }
+            scanResult.reputation?.let { add("Reputation" to it.toString()) }
+        }
+    }
+    if (rows.isEmpty()) return
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        rows.forEach { (label, value) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(0.38f)
+                )
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(0.62f)
+                )
+            }
+        }
+    }
+}
+
+private fun formatScanDate(epochSeconds: Long): String {
+    val date = java.util.Date(epochSeconds * 1000L)
+    return java.text.SimpleDateFormat("MMM d, yyyy", Locale.US).format(date)
 }
 
 private fun formatTransferSpeed(bytesPerSec: Double): String {
