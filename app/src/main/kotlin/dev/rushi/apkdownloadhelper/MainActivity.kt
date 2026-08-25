@@ -2374,8 +2374,11 @@ private fun HelperScreen(
             item {
                 // At-a-glance VirusTotal quota right under the header (next to
                 // the Fast Mode toggle area) so usage is visible without opening
-                // Settings. Hidden when no API key is configured.
-                HomeQuotaCard(apiKey = settings.virusTotalApiKey)
+                // Settings. Hidden when VirusTotal is disabled or no API key is
+                // configured.
+                HomeQuotaCard(
+                    apiKey = if (settings.virusTotalEnabled) settings.virusTotalApiKey else ""
+                )
             }
 
             if (request == null) {
