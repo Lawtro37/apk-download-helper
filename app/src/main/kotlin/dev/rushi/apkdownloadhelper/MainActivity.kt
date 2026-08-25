@@ -126,6 +126,7 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -346,6 +347,9 @@ class MainActivity : ComponentActivity() {
                 themeMode = helperSettings.themeMode,
                 dynamicColors = helperSettings.dynamicColors
             ) {
+                // Ping every web source at launch so the Settings Health tab
+                // reflects current reachability instead of the last resolve.
+                LaunchedEffect(Unit) { SourceHealthChecker.refresh() }
                 val captcha = captchaBrowser
                 if (captcha != null) {
                     CaptchaBrowserScreen(
@@ -2274,7 +2278,6 @@ private fun HelperScreen(
                 onSettingsChange = onSettingsChange,
                 logs = logs,
                 onClearLogs = onClearLogs,
-                healthEntries = (state as? UiState.Ready)?.result?.sourceHealth().orEmpty(),
                 historyEntries = historyEntries,
                 onOpenHistoryEntry = onOpenHistoryEntry,
                 onShareHistoryEntry = onShareHistoryEntry,
@@ -2485,32 +2488,51 @@ private fun HelperScreen(
 }
 
 @Composable
-private fun SourceHealthCard(entries: List<SourceHealthEntry>) {
-    val hasFailures = entries.any { it.status == SourceHealthStatus.Failed }
-    val hasActivity = entries.any { it.status == SourceHealthStatus.Checking }
-    val failedCount = entries.count { it.status == SourceHealthStatus.Failed }
-    val okCount = entries.count { it.status == SourceHealthStatus.Ok }
+private fun SourceHealthCard() {
+    val checks by SourceHealthChecker.checks.collectAsState()
+    val checking by SourceHealthChecker.checking.collectAsState()
+    val webChecks = checks.filter { it.status != SourceHealthChecker.Status.Skipped }
 
+    val goodCount = webChecks.count { it.status == SourceHealthChecker.Status.Good }
+    val blockedCount = webChecks.count { it.status == SourceHealthChecker.Status.CaptchaBlocked }
+    val unreachableCount = webChecks.count { it.status == SourceHealthChecker.Status.Unreachable }
+    val hasProblems = blockedCount > 0 || unreachableCount > 0
+
+    val summaryParts = mutableListOf<String>()
+    if (goodCount > 0) summaryParts.add("$goodCount available")
+    if (blockedCount > 0) summaryParts.add("$blockedCount captcha-blocked")
+    if (unreachableCount > 0) summaryParts.add("$unreachableCount unreachable")
     val summary = when {
-        hasActivity -> "Checking sources..."
-        failedCount > 0 && okCount > 0 -> "$failedCount source${if (failedCount == 1) "" else "s"} had problems, $okCount OK"
-        failedCount > 0 -> "$failedCount source${if (failedCount == 1) "" else "s"} had problems"
-        okCount > 0 -> "$okCount source${if (okCount == 1) "" else "s"} available"
-        else -> "Sources not checked yet"
+        checking -> "Checking sources…"
+        webChecks.isEmpty() -> "Sources not checked yet"
+        else -> summaryParts.ifEmpty { listOf("No sources available") }.joinToString(" · ")
     }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
     ) {
-        Text(
-            text = "Source health",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Source health",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            HelperOutlinedButton(
+                text = if (checking) "Checking…" else "Re-check",
+                onClick = { SourceHealthChecker.refresh() },
+                icon = if (checking) null else Icons.Outlined.Refresh,
+                modifier = Modifier.width(HelperDefaults.ActionClearWidth + 28.dp)
+            )
+        }
         Text(
             text = summary,
-            color = if (hasFailures) {
+            color = if (hasProblems) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -2518,24 +2540,26 @@ private fun SourceHealthCard(entries: List<SourceHealthEntry>) {
             style = MaterialTheme.typography.bodySmall
         )
 
-        if (entries.isEmpty()) {
-            InfoCard("No sources checked yet. Resolve candidates on the main screen to see per-source health here.")
+        if (webChecks.isEmpty()) {
+            InfoCard("No sources checked yet — the check runs automatically when the app opens.")
         } else {
-            entries.forEach { entry ->
-                SourceHealthRow(entry)
+            webChecks.forEach { check ->
+                SourceHealthRow(check)
             }
         }
     }
 }
 
 @Composable
-private fun SourceHealthRow(entry: SourceHealthEntry) {
-    val (dotColor, statusText) = when (entry.status) {
-        SourceHealthStatus.Ok -> MaterialTheme.colorScheme.primary to "Available"
-        SourceHealthStatus.Checking -> warningAccent() to "Checking..."
-        SourceHealthStatus.Failed -> MaterialTheme.colorScheme.error to (entry.message ?: "Failed")
-        SourceHealthStatus.NoResult -> MaterialTheme.colorScheme.onSurfaceVariant to "No matching candidates"
-        SourceHealthStatus.NotChecked -> MaterialTheme.colorScheme.outline to "Not checked"
+private fun SourceHealthRow(check: SourceHealthChecker.Check) {
+    val (dotColor, statusText) = when (check.status) {
+        SourceHealthChecker.Status.Good -> MaterialTheme.colorScheme.primary to "Available"
+        SourceHealthChecker.Status.Checking -> warningAccent() to "Checking…"
+        SourceHealthChecker.Status.CaptchaBlocked ->
+            MaterialTheme.colorScheme.error to (check.message ?: "Blocked by a captcha challenge")
+        SourceHealthChecker.Status.Unreachable ->
+            MaterialTheme.colorScheme.error to (check.message ?: "Unreachable")
+        SourceHealthChecker.Status.Skipped -> MaterialTheme.colorScheme.outline to "Not checked"
     }
 
     Row(
@@ -2555,7 +2579,7 @@ private fun SourceHealthRow(entry: SourceHealthEntry) {
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                text = entry.source.label,
+                text = check.source.label,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -2563,7 +2587,7 @@ private fun SourceHealthRow(entry: SourceHealthEntry) {
                 text = statusText,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
-                maxLines = if (entry.status == SourceHealthStatus.Failed) 3 else 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -2764,7 +2788,6 @@ private fun HelperSettingsScreen(
     onSettingsChange: (HelperSettings) -> Unit,
     logs: List<RequestLogEntry>,
     onClearLogs: () -> Unit,
-    healthEntries: List<SourceHealthEntry>,
     historyEntries: List<DownloadHistoryEntry>,
     onOpenHistoryEntry: (DownloadHistoryEntry) -> Unit,
     onShareHistoryEntry: (DownloadHistoryEntry) -> Unit,
@@ -2843,7 +2866,7 @@ private fun HelperSettingsScreen(
 
         if (tab == SettingsTab.Health) {
             item {
-                SourceHealthCard(healthEntries)
+                SourceHealthCard()
             }
         }
 
@@ -6972,40 +6995,7 @@ private sealed interface VersionHistoryState {
     data class Error(val message: String) : VersionHistoryState
 }
 
-private enum class SourceHealthStatus {
-    NotChecked,
-    Checking,
-    Ok,
-    NoResult,
-    Failed
-}
 
-private data class SourceHealthEntry(
-    val source: DownloadSource,
-    val status: SourceHealthStatus,
-    val message: String? = null
-)
-
-private fun CandidateResult.sourceHealth(): List<SourceHealthEntry> =
-    sourceGroups.map { group ->
-        val states = listOf(group.recommended, group.latest)
-        val failures = states.filterIsInstance<ResolveState.Error>()
-        val loadedCandidates = states.filterIsInstance<ResolveState.Done>().map { it.candidates }
-        val anyLoading = states.any { it is ResolveState.Loading }
-        when {
-            failures.isNotEmpty() -> {
-                SourceHealthEntry(
-                    source = group.source,
-                    status = SourceHealthStatus.Failed,
-                    message = failures.first().message
-                )
-            }
-            loadedCandidates.any { it.isNotEmpty() } -> SourceHealthEntry(group.source, SourceHealthStatus.Ok)
-            loadedCandidates.isNotEmpty() -> SourceHealthEntry(group.source, SourceHealthStatus.NoResult)
-            anyLoading -> SourceHealthEntry(group.source, SourceHealthStatus.Checking)
-            else -> SourceHealthEntry(group.source, SourceHealthStatus.NotChecked)
-        }
-    }
 
 internal data class ApkMirrorLatestInfo(
     val versionName: String?,
@@ -7186,7 +7176,7 @@ internal enum class DownloadSource(
     PLAY("Play", 9, supportsManualArtifactPicker = false)
 }
 
-private fun DownloadSource.searchDomain(): String? = when (this) {
+internal fun DownloadSource.searchDomain(): String? = when (this) {
     DownloadSource.APK_MIRROR -> "apkmirror.com"
     DownloadSource.UPTODOWN -> "uptodown.com"
     DownloadSource.APK_PURE -> "apkpure.com"
