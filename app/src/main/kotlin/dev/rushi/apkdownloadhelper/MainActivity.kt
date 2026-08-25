@@ -3685,6 +3685,39 @@ private fun ReuseOfferDialog(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            entry.scanVerdict?.let { verdict ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    modifier = Modifier.padding(top = 3.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = when {
+                                            verdict.malicious -> Icons.Outlined.Warning
+                                            verdict.failed -> Icons.Outlined.HelpOutline
+                                            else -> Icons.Outlined.CheckCircle
+                                        },
+                                        contentDescription = null,
+                                        tint = when {
+                                            verdict.malicious -> MaterialTheme.colorScheme.error
+                                            verdict.failed -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            else -> MaterialTheme.colorScheme.primary
+                                        },
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = verdict.label,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = when {
+                                            verdict.malicious -> MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
                     }
                 }
