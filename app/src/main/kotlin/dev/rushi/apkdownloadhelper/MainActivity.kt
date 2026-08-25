@@ -1206,6 +1206,23 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            is DownloadJobManager.Event.PostDownloadStatus -> {
+                uiState = if (fastModeActive) {
+                    UiState.FastMode(
+                        FastModeProgress(
+                            sourceLabel = event.candidate.source.label,
+                            detail = event.status,
+                            percent = 100
+                        )
+                    )
+                } else {
+                    UiState.Downloading(
+                        event.candidate,
+                        percent = 100,
+                        statusMessage = event.status
+                    )
+                }
+            }
             is DownloadJobManager.Event.Completed -> {
                 // StateFlow replays its last value to every new collector, so a
                 // freshly created activity can receive the Completed event of a
@@ -5430,7 +5447,9 @@ private fun DownloadingState(state: UiState.Downloading, onCancel: () -> Unit) {
             modifier = Modifier.padding(HelperDefaults.ContentPadding),
             verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
         ) {
-            Text("Downloading from ${state.candidate.source.label}")
+            Text(
+                text = state.statusMessage ?: "Downloading from ${state.candidate.source.label}"
+            )
             LinearProgressIndicator(
                 progress = { state.percent / 100f },
                 modifier = Modifier.fillMaxWidth()
@@ -6090,7 +6109,8 @@ private sealed interface UiState {
         val candidate: DownloadCandidate,
         val percent: Int,
         val speedBytesPerSec: Double = 0.0,
-        val etaMs: Long? = null
+        val etaMs: Long? = null,
+        val statusMessage: String? = null
     ) : UiState
     data class Error(val message: String) : UiState
     data class FastMode(val progress: FastModeProgress) : UiState

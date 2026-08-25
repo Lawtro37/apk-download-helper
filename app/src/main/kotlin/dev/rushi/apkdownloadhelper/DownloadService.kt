@@ -104,6 +104,11 @@ internal object DownloadJobManager {
             val file: File,
             val foundVersionCode: Long?
         ) : Event
+        /** Short-lived status shown after download hits 100 % but before completion. */
+        data class PostDownloadStatus(
+            val candidate: DownloadCandidate,
+            val status: String
+        ) : Event
     }
 
     @Volatile
@@ -331,6 +336,7 @@ internal class DownloadService : Service() {
         } else {
             downloadSplitArchive(candidate, files, downloadsDir)
         }
+        emitPostDownloadStatus(candidate, "Validating downloaded file…")
         validateDownloadedArtifact(
             this,
             job.request,
@@ -346,12 +352,14 @@ internal class DownloadService : Service() {
         val candidate = job.candidate
         val settings = job.settings
 
+        emitPostDownloadStatus(candidate, "Copying to Downloads…")
         val uri = when (settings.downloadLocation) {
             DownloadLocation.TEMPORARY -> FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.files", file)
             DownloadLocation.DOWNLOADS -> copyToDownloads(file)
         }
         grantUriPermission(request.callerPackage, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
+        emitPostDownloadStatus(candidate, "Handing off to Morphe…")
         val result = PendingDownloadResult(
             uri = uri.toString(),
             fileName = file.name,
@@ -390,6 +398,14 @@ internal class DownloadService : Service() {
         DownloadJobManager.emit(DownloadJobManager.Event.Cancelled(job.candidate))
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun emitPostDownloadStatus(candidate: DownloadCandidate, status: String) {
+        DownloadJobManager.emit(DownloadJobManager.Event.PostDownloadStatus(candidate, status))
+        notifySafe(
+            NOTIFICATION_ID_PROGRESS,
+            buildProgressNotification(candidate, 100, status)
+        )
     }
 
     private fun cancelDownload() {
