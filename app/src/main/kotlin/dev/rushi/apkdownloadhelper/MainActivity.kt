@@ -5861,10 +5861,13 @@ private fun ScanResultCard(
 @Composable
 private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
     if (scanResult is VirusTotalScanner.ScanResult.Error) return
+    val context = LocalContext.current
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+    var hashCopied by remember { mutableStateOf(false) }
+    val sha256 = scanResult.sha256
     val rows = buildList {
         scanResult.typeDescription?.let { add("Type" to it) }
         scanResult.sizeBytes?.let { add("Size" to it.formatBytes()) }
-        scanResult.sha256?.let { add("SHA-256" to it.take(16) + "…") }
         scanResult.timesSubmitted?.let { add("Times submitted" to it.toString()) }
         scanResult.firstSubmissionDate?.let { add("First seen" to formatScanDate(it)) }
         scanResult.lastAnalysisDate?.let { add("Last analyzed" to formatScanDate(it)) }
@@ -5875,11 +5878,84 @@ private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
             scanResult.reputation?.let { add("Reputation" to it.toString()) }
         }
     }
-    if (rows.isEmpty()) return
+    if (rows.isEmpty() && sha256 == null) return
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        sha256?.let { hash ->
+            // Tap to copy the full hash.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("SHA-256", hash))
+                        hashCopied = true
+                        Toast.makeText(context, "SHA-256 copied", Toast.LENGTH_SHORT).show()
+                    }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "SHA-256",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(0.38f)
+                )
+                Text(
+                    text = hash.take(16) + "…",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(0.5f)
+                )
+                Icon(
+                    imageVector = if (hashCopied) Icons.Outlined.CheckCircle else Icons.Outlined.ContentCopy,
+                    contentDescription = "Copy SHA-256",
+                    tint = if (hashCopied) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            // Jump to the full report on virustotal.com.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        val open = Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://www.virustotal.com/gui/file/$hash")
+                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                        runCatching { context.startActivity(open) }
+                            .onFailure {
+                                Toast.makeText(context, "No browser available", Toast.LENGTH_SHORT).show()
+                            }
+                    }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Open in VirusTotal",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(0.38f)
+                )
+                Spacer(modifier = Modifier.weight(0.5f))
+                Icon(
+                    imageVector = Icons.Outlined.OpenInNew,
+                    contentDescription = "Open in VirusTotal",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
         rows.forEach { (label, value) ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
