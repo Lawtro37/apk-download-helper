@@ -99,6 +99,13 @@ internal object VirusTotalScanner {
         val category: String
     )
 
+    /** Free-tier request quotas reported by /users/{id}/overall_quotas. */
+    data class QuotaUsage(
+        val hourlyUsed: Int, val hourlyAllowed: Int,
+        val dailyUsed: Int, val dailyAllowed: Int,
+        val monthlyUsed: Int, val monthlyAllowed: Int
+    )
+
     /**
      * Check VirusTotal for [file] and return a [ScanResult] with the detection
      * summary plus whatever file metadata the API returned.
@@ -144,6 +151,40 @@ internal object VirusTotalScanner {
         } catch (e: Exception) {
             Log.e(TAG, "Scan failed", e)
             ScanResult.Error("Scan failed: ${e.message ?: "Unknown error"}")
+        }
+    }
+
+    /**
+     * Fetch the account's request quotas (free tier: 240/hour, 500/day,
+     * 15.5K/month). The API key itself works as the user id, and this
+     * endpoint does not consume quota. Returns null on failure.
+     */
+    fun fetchQuotaUsage(apiKey: String): QuotaUsage? {
+        if (apiKey.isBlank()) return null
+        return try {
+            val request = Request.Builder()
+                .url("$BASE_URL/users/$apiKey/overall_quotas")
+                .addHeader("x-apikey", apiKey)
+                .get()
+                .build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: return null
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Quota lookup failed (${response.code})")
+                return null
+            }
+            val quotas = gson.fromJson(body, QuotasResponse::class.java).data ?: return null
+            QuotaUsage(
+                hourlyUsed = quotas.hourly?.user?.used ?: 0,
+                hourlyAllowed = quotas.hourly?.user?.allowed ?: 0,
+                dailyUsed = quotas.daily?.user?.used ?: 0,
+                dailyAllowed = quotas.daily?.user?.allowed ?: 0,
+                monthlyUsed = quotas.monthly?.user?.used ?: 0,
+                monthlyAllowed = quotas.monthly?.user?.allowed ?: 0
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Quota lookup failed", e)
+            null
         }
     }
 
@@ -467,6 +508,28 @@ internal object VirusTotalScanner {
 
     private data class UploadUrlResponse(
         val data: String?
+    )
+
+    private data class QuotasResponse(
+        val data: QuotasData?
+    )
+
+    private data class QuotasData(
+        @SerializedName("api_requests_hourly")
+        val hourly: QuotaBucket?,
+        @SerializedName("api_requests_daily")
+        val daily: QuotaBucket?,
+        @SerializedName("api_requests_monthly")
+        val monthly: QuotaBucket?
+    )
+
+    private data class QuotaBucket(
+        val user: QuotaValue?
+    )
+
+    private data class QuotaValue(
+        val allowed: Int = 0,
+        val used: Int = 0
     )
 
     private data class AnalysisResponse(

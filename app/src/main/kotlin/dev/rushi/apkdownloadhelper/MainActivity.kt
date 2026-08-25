@@ -2870,6 +2870,9 @@ private fun HelperSettingsCard(
                         onSettingsChange(settings.copy(virusTotalApiKey = it))
                     }
                 )
+                if (settings.virusTotalApiKey.isNotBlank()) {
+                    VirusTotalQuotaRow(apiKey = settings.virusTotalApiKey)
+                }
             }
         }
 
@@ -3275,6 +3278,132 @@ private fun SettingTextFieldRow(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun VirusTotalQuotaRow(apiKey: String) {
+    val colors = MaterialTheme.colorScheme
+    var quota by remember { mutableStateOf<VirusTotalScanner.QuotaUsage?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val load: () -> Unit = {
+        scope.launch {
+            loading = true
+            failed = false
+            quota = withContext(Dispatchers.IO) { VirusTotalScanner.fetchQuotaUsage(apiKey) }
+            if (quota == null) failed = true
+            loading = false
+        }
+    }
+    LaunchedEffect(apiKey) { load() }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
+        color = sourceCardFill(),
+        border = BorderStroke(1.dp, sourceCardBorder())
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.NetworkCheck,
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Quota usage",
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface
+                    )
+                    Text(
+                        "Free tier: 240/hour · 500/day · 15,500/month",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = "Refresh quota",
+                        tint = colors.primary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable { load() }
+                            .padding(2.dp)
+                    )
+                }
+            }
+            val current = quota
+            when {
+                current != null -> {
+                    QuotaBar("Per hour", current.hourlyUsed, current.hourlyAllowed)
+                    QuotaBar("Per day", current.dailyUsed, current.dailyAllowed)
+                    QuotaBar("Per month", current.monthlyUsed, current.monthlyAllowed)
+                }
+                failed -> Text(
+                    text = "Couldn't load quota — check your API key.",
+                    color = colors.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuotaBar(label: String, used: Int, allowed: Int) {
+    val colors = MaterialTheme.colorScheme
+    val ratio = if (allowed > 0) used.toFloat() / allowed else 0f
+    val barColor = when {
+        ratio >= 0.9f -> colors.error
+        ratio >= 0.7f -> Color(0xFFE0A030)
+        else -> colors.primary
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "$used / $allowed",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = if (ratio >= 0.7f) barColor else colors.onSurface
+            )
+        }
+        LinearProgressIndicator(
+            progress = { ratio.coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp)),
+            color = barColor,
+            trackColor = colors.surfaceVariant
+        )
     }
 }
 
