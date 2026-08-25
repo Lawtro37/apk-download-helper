@@ -257,59 +257,82 @@ internal object VirusTotalScanner {
         onProgress: ((String) -> Unit)? = null,
         checkCancelled: () -> Boolean = { false }
     ): ScanResult {
-        val apkNames = runCatching {
-            ZipFile(file).use { zip ->
-                zip.entries().asSequence()
-                    .filter { !it.isDirectory }
-                    .map { it.name }
-                    .filter { it.lowercase().endsWith(".apk") }
-                    .toList()
-            }
-        }.getOrNull()
-        if (apkNames.isNullOrEmpty()) {
-            Log.d(TAG, "${file.name} is not a ZIP of APKs — scanning the container itself.")
-            return scanFile(file, apiKey, onProgress, checkCancelled)
-        }
-
-        onProgress?.invoke("Extracting ${apkNames.size} APKs from ${file.name}…")
+        // Open the bundle ONCE. For large APKS files the central-directory read
+        // is the slow part, so a second ZipFile(file) open — as the old code
+        // did for extraction — could block visibility with no progress update,
+        // which read as "stuck at Extracting". One open, one pass: enumerate,
+        // extract, and emit progress per APK without re-reading the archive.
+        onProgress?.invoke("Opening ${file.name}…")
+        val extractStartTotal = System.currentTimeMillis()
         val tempDir = File.createTempFile("vt-bundle", "").apply { delete(); mkdirs() }
-        try {
-            val total = apkNames.size
-            val innerResults = mutableListOf<Pair<ScanResult, String>>()
+        val innerResults = mutableListOf<Pair<ScanResult, String>>()
+        // A corrupt or truncated bundle (a failed split download) makes
+        // ZipFile throw. Catch it here and return a proper scan error so the
+        // UI always receives a definitive result instead of freezing on the
+        // last "Extracting…" progress message — the freeze the user hit.
+        return try {
+            val apkNames = zipEntriesOf(file)
+            if (apkNames.isEmpty()) {
+                Log.d(TAG, "${file.name} is not a ZIP of APKs — scanning the container itself.")
+                return scanFile(file, apiKey, onProgress, checkCancelled)
+            }
             ZipFile(file).use { zip ->
-                apkNames.forEachIndexed { index, name ->
-                    if (checkCancelled()) throw CancellationException("Scan cancelled")
-                    val safeName = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    val out = File(tempDir, safeName)
-                    zip.getInputStream(zip.getEntry(name)).use { input ->
-                        out.outputStream().use { output -> input.copyTo(output) }
+                val total = apkNames.size
+                if (total > 0) {
+                    // Warn ahead of time that extraction is about to run, so the UI
+                    // never sits on a stale message during the whole extraction pass.
+                    onProgress?.invoke("Extracting $total APKs from ${file.name}…")
+                    apkNames.forEachIndexed { index, name ->
+                        if (checkCancelled()) throw CancellationException("Scan cancelled")
+                        val safeName = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
+                        val out = File(tempDir, safeName)
+                        val extractStart = System.currentTimeMillis()
+                        zip.getInputStream(zip.getEntry(name)).use { input ->
+                            out.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        // Report each finished extraction so a big bundle shows
+                        // movement instead of looking hung on a single APK.
+                        onProgress?.invoke(
+                            "Extracted ${index + 1}/$total (${name})" +
+                                " in ${(System.currentTimeMillis() - extractStart) / 1000}s — next: scan…"
+                        )
+                        innerResults.add(
+                            scanFile(
+                                out,
+                                apiKey,
+                                onProgress = { status ->
+                                    onProgress?.invoke("APK ${index + 1} of $total ($name): $status")
+                                },
+                                checkCancelled = checkCancelled
+                            ) to name
+                        )
                     }
-                    // Prefix every per-APK status with which APK is current so the
-                    // UI shows live progress instead of a static "Checking…" that
-                    // looks stuck during the 12s rate-limit pauses between APKs.
-                    onProgress?.invoke("Scanning APK ${index + 1} of $total: $name…")
-                    innerResults.add(
-                        scanFile(
-                            out,
-                            apiKey,
-                            onProgress = { status ->
-                                onProgress?.invoke("APK ${index + 1} of $total ($name): $status")
-                            },
-                            checkCancelled = checkCancelled
-                        ) to name
-                    )
-                    // The shared rate limiter enforces the free-tier gap between
-                    // per-APK lookups and across scans, so a bundle never
-                    // stamps the 4/min limit. Each wait surfaces live so the UI
-                    // shows "waiting Xs for rate limit" instead of a frozen bar.
                 }
             }
             onProgress?.invoke("Aggregating results for ${apkNames.size} APKs…")
-            return aggregateBundle(innerResults, file.name)
+            aggregateBundle(innerResults, file.name)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Bundle scan failed for ${file.name}", e)
+            ScanResult.Error("Bundle scan failed: ${e.message ?: "Unknown error"}")
         } finally {
-            tempDir.deleteRecursively()
+            // Best effort only: throwing here would mask the real scan outcome.
+            runCatching { tempDir.deleteRecursively() }
+            Log.d(TAG, "Bundle scan of ${file.name} finished in ${(System.currentTimeMillis() - extractStartTotal) / 1000}s")
         }
     }
+
+    /** Returns the inner APK entry names, or empty on a corrupt/unreadable archive. */
+    private fun zipEntriesOf(file: File): List<String> = runCatching {
+        ZipFile(file).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory }
+                .map { it.name }
+                .filter { it.lowercase().endsWith(".apk") }
+                .toList()
+        }
+    }.getOrDefault(emptyList())
 
     private fun aggregateBundle(
         results: List<Pair<ScanResult, String>>,
@@ -406,14 +429,18 @@ internal object VirusTotalScanner {
         }
 
         return try {
+            val hashStart = System.currentTimeMillis()
             val sha256 = sha256Of(file)
-            Log.d(TAG, "SHA-256: $sha256")
+            Log.d(TAG, "SHA-256 of ${file.name} (${file.length()} bytes) in ${System.currentTimeMillis() - hashStart}ms: $sha256")
 
             // Fast path: the file is already in VirusTotal's database.
             onProgress?.invoke("Checking VirusTotal…")
-            fetchFileReport(sha256, apiKey, onProgress, checkCancelled)?.let { report ->
+            val fetchStart = System.currentTimeMillis()
+            val report = fetchFileReport(sha256, apiKey, onProgress, checkCancelled)
+            Log.d(TAG, "fetchFileReport(${file.name}) returned in ${System.currentTimeMillis() - fetchStart}ms")
+            report?.let { r ->
                 Log.d(TAG, "File already analysed — using existing report.")
-                return parseFileReport(report, file.name)
+                return parseFileReport(r, file.name)
             }
 
             onProgress?.invoke("Uploading ${file.name} to VirusTotal…")
