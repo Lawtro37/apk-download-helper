@@ -114,8 +114,11 @@ internal object DownloadJobManager {
         /** VirusTotal scan is in progress. [percent] is 0..100, null when unknown. */
         data class Scanning(
             val candidate: DownloadCandidate,
+            /** Human status, e.g. "Extracting 2 of 4…" or "Checking VirusTotal…". */
             val status: String,
-            val percent: Int? = null
+            val percent: Int? = null,
+            /** Estimated ms until the scan finishes, when knowable (null otherwise). */
+            val etaMs: Long? = null
         ) : Event
         /** VirusTotal scan completed with results. */
         data class ScanComplete(
@@ -505,6 +508,13 @@ internal class DownloadService : Service() {
         // real 0-100% bar with the right label (e.g. "APK 3 of 4 (split_1.apk):
         // Waiting for analysis… · 82%").
         var scanStatus = "Scanning…"
+
+        // Rate-based remaining-time estimator. Scans are paced by the VT quota
+        // (≈16s/APK), so percent doesn't advance linearly — a windowed rate is
+        // steadier than an instant one. We smooth over the last few ticks.
+        val scanStartNanos = System.nanoTime()
+        var lastEtaPercent = 0
+        var lastEtaNanos = scanStartNanos
         val scanResult = VirusTotalScanner.scanDownloadedFile(
             file,
             apiKey,
@@ -515,16 +525,37 @@ internal class DownloadService : Service() {
                 )
             },
             onPercent = { pct ->
-                // Drive a real 0-100% bar through the scan phases (extraction,
-                // per-APK hashing, report checks, upload, analysis poll) instead
-                // of sitting on a static 100% from the download.
-                DownloadJobManager.emit(
-                    DownloadJobManager.Event.Scanning(candidate, scanStatus, percent = pct)
-                )
-                notifySafe(
-                    NOTIFICATION_ID_PROGRESS,
-                    buildProgressNotification(candidate, pct, scanStatus)
-                )
+                run {
+                    val now = System.nanoTime()
+                    val elapsedSinceLast = now - lastEtaNanos
+                    val elapsedTotal = now - scanStartNanos
+                    var eta: Long? = null
+                    if (pct > 0 && pct < 100) {
+                        // Progress per nanosecond since the last tick → remaining.
+                        val progressed = pct - lastEtaPercent
+                        if (progressed > 0) {
+                            val ratePctPerMs = progressed.toDouble() / (elapsedSinceLast / 1_000_000.0)
+                            // Recompute from the total elapsed for a smoother estimate.
+                            val overallRate = pct.toDouble() / (elapsedTotal / 1_000_000.0)
+                            val effectiveRate = maxOf(ratePctPerMs, overallRate)
+                            if (effectiveRate > 0) {
+                                eta = ((100 - pct) / effectiveRate).toLong()
+                            }
+                        }
+                        lastEtaPercent = pct
+                        lastEtaNanos = now
+                    }
+                    // Drive a real 0-100% bar through the scan phases (extraction,
+                    // per-APK hashing, report checks, upload, analysis poll) instead
+                    // of sitting on a static 100% from the download.
+                    DownloadJobManager.emit(
+                        DownloadJobManager.Event.Scanning(candidate, scanStatus, percent = pct, etaMs = eta)
+                    )
+                    notifySafe(
+                        NOTIFICATION_ID_PROGRESS,
+                        buildProgressNotification(candidate, pct, scanStatus)
+                    )
+                }
             },
             // Abort promptly when the user cancels: the scanner checks this
             // between per-APK lookups and during rate-limit pauses, so a

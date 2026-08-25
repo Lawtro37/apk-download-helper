@@ -1258,13 +1258,15 @@ class MainActivity : ComponentActivity() {
                         FastModeProgress(
                             sourceLabel = event.candidate.source.label,
                             detail = event.status,
-                            percent = pct
+                            percent = pct,
+                            etaMs = event.etaMs
                         )
                     )
                 } else {
                     UiState.Downloading(
                         event.candidate,
                         percent = pct,
+                        etaMs = event.etaMs,
                         statusMessage = event.status
                     )
                 }
@@ -6125,6 +6127,31 @@ private fun FastModeCard(
     }
 }
 
+// Splits a scan status into a bold phase label + muted detail so the card
+// distinguishes e.g. "Scanning APK 2 of 4" from "split_1.apk · Waiting 16s…".
+private fun scanPhaseSplit(status: String): Pair<String, String> {
+    val apk = Regex("""APK (\d+) of (\d+) \(([^)]+)\):? ?(.*)""").find(status)
+    if (apk != null) {
+        val (_, _, name, rest) = apk.destructured
+        val phase = "Scanning APK ${apk.groupValues[1]} of ${apk.groupValues[2]}"
+        return phase to rest.ifBlank { name }
+    }
+    val extract = Regex("""Extract(ing|ed) ([^:]+)""").find(status)
+    if (extract != null) {
+        val action = extract.groupValues[1]  // ing | ed
+        val body = extract.groupValues[2]
+        return "Extract$action ${body.take(30)}" to (status.removePrefix(extract.value).trim())
+    }
+    // Everything else: first clause is the phase (before "·"/":"), rest is detail.
+    val sep = status.indexOfFirst { it == '·' || it == ':' }
+    return if (sep > 0 && sep < status.length - 1) {
+        (status.substring(0, sep).trim().replaceFirstChar { it.uppercase() }) to
+            status.substring(sep + 1).trim()
+    } else {
+        status to ""
+    }
+}
+
 @Composable
 private fun DownloadingState(state: UiState.Downloading, onCancel: () -> Unit) {
     HelperCard {
@@ -6132,9 +6159,23 @@ private fun DownloadingState(state: UiState.Downloading, onCancel: () -> Unit) {
             modifier = Modifier.padding(HelperDefaults.ContentPadding),
             verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
         ) {
+            val statusText = state.statusMessage ?: "Downloading from ${state.candidate.source.label}"
+            val isScan = statusText.startsWith("APK ") || statusText.startsWith("Extract") ||
+                statusText.startsWith("Opening") || statusText.startsWith("Upload") ||
+                statusText.startsWith("Waiting") || statusText.startsWith("Aggregat")
+            val (phase, detail) = if (isScan) scanPhaseSplit(statusText) else (statusText to "")
             Text(
-                text = state.statusMessage ?: "Downloading from ${state.candidate.source.label}"
+                text = phase,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyLarge
             )
+            if (detail.isNotBlank()) {
+                Text(
+                    text = detail,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             LinearProgressIndicator(
                 progress = { state.percent / 100f },
                 modifier = Modifier.fillMaxWidth()
