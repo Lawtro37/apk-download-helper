@@ -3779,6 +3779,7 @@ private fun ReuseOfferDialog(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
                             .clickable { onUseExisting(option) },
+                        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
                         color = sourceCardFill(),
                         border = BorderStroke(1.dp, sourceCardBorder())
                     ) {
@@ -5561,6 +5562,11 @@ private fun DownloadHistorySection(
                         .weight(1f)
                         .clip(RoundedCornerShape(50))
                         .clickable { filter = f },
+                    // Passing the shape to the Surface (not just clipping) makes
+                    // the border follow the rounded outline; without it the
+                    // border is drawn as a rectangle and cut at the rounded
+                    // ends, which reads as a clipped border.
+                    shape = RoundedCornerShape(50),
                     color = if (selected) {
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                     } else {
