@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit
  * VirusTotal API v3 client for scanning downloaded APK files.
  *
  * Free-tier limits: 4 lookups/min, 500/day, 15.5K/month.
- * Max upload size: 32 MB (free tier); bigger files use /files/upload_url.
+ * Upload size: up to 32 MB via POST /files; larger files (up to 650 MB)
+ * go through the single-use /files/upload_url endpoint.
  *
  * Flow: compute the file's SHA-256 locally and ask VirusTotal for the
  * existing report first (GET /files/{sha256}). If the file was already
@@ -110,8 +111,8 @@ internal object VirusTotalScanner {
         if (!file.exists()) {
             return ScanResult.Error("File not found: ${file.name}")
         }
-        if (file.length() > 32L * 1024 * 1024) {
-            return ScanResult.Error("File too large for free-tier scan (max 32 MB)")
+        if (file.length() > 650L * 1024 * 1024) {
+            return ScanResult.Error("File too large for VirusTotal scan (max 650 MB)")
         }
 
         return try {
@@ -176,6 +177,20 @@ internal object VirusTotalScanner {
     }
 
     private fun uploadFile(file: File, apiKey: String): String {
+        if (file.length() > 32L * 1024 * 1024) {
+            // POST /files rejects anything above 32 MB; use the presigned URL.
+            return uploadViaUploadUrl(file, apiKey)
+        }
+        return try {
+            uploadDirect(file, apiKey)
+        } catch (e: PayloadTooLargeException) {
+            Log.d(TAG, "Direct upload rejected (too large), falling back to upload URL.")
+            uploadViaUploadUrl(file, apiKey)
+        }
+    }
+
+    /** POST the file straight to /files (only admits files up to 32 MB). */
+    private fun uploadDirect(file: File, apiKey: String): String {
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -200,9 +215,54 @@ internal object VirusTotalScanner {
             if (response.code == 409) {
                 throw AlreadySubmittedException(message)
             }
+            if (response.code == 413) {
+                throw PayloadTooLargeException(message)
+            }
             throw Exception(message)
         }
 
+        val uploadResponse = gson.fromJson(body, UploadResponse::class.java)
+        return uploadResponse.data?.id ?: throw Exception("No analysis ID in response")
+    }
+
+    /**
+     * Request a single-use presigned upload URL, then POST the file to it.
+     * Admits files up to 650 MB.
+     */
+    private fun uploadViaUploadUrl(file: File, apiKey: String): String {
+        val urlRequest = Request.Builder()
+            .url("$BASE_URL/files/upload_url")
+            .addHeader("x-apikey", apiKey)
+            .get()
+            .build()
+        val urlResponse = client.newCall(urlRequest).execute()
+        val urlBody = urlResponse.body?.string() ?: throw Exception("Empty upload URL response")
+        if (!urlResponse.isSuccessful) {
+            throw Exception("Getting upload URL failed (${urlResponse.code}): $urlBody")
+        }
+        val uploadUrl = gson.fromJson(urlBody, UploadUrlResponse::class.java).data
+            ?: throw Exception("No upload URL in response")
+
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                "file",
+                file.name,
+                file.asRequestBody("application/octet-stream".toMediaType())
+            )
+            .build()
+        val request = Request.Builder()
+            .url(uploadUrl)
+            .addHeader("x-apikey", apiKey)
+            .post(requestBody)
+            .build()
+
+        val response = client.newCall(request).execute()
+        val body = response.body?.string() ?: throw Exception("Empty response")
+        if (!response.isSuccessful) {
+            val error = gson.fromJson(body, ErrorResponse::class.java)
+            throw Exception(error.error?.message ?: "Upload via URL failed (${response.code})")
+        }
         val uploadResponse = gson.fromJson(body, UploadResponse::class.java)
         return uploadResponse.data?.id ?: throw Exception("No analysis ID in response")
     }
@@ -399,8 +459,14 @@ internal object VirusTotalScanner {
 
     private class AlreadySubmittedException(message: String) : Exception(message)
 
+    private class PayloadTooLargeException(message: String) : Exception(message)
+
     private data class UploadResponse(
         val data: AnalysisData?
+    )
+
+    private data class UploadUrlResponse(
+        val data: String?
     )
 
     private data class AnalysisResponse(
