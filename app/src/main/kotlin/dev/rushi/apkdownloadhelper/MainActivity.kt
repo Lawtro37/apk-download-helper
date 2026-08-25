@@ -2946,6 +2946,42 @@ private fun HelperSettingsCard(
                         onSettingsChange(settings.copy(virusTotalApiKey = it))
                     }
                 )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
+                        .clickable {
+                            val open = Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://docs.virustotal.com/docs/please-give-me-an-api-key")
+                            ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                            runCatching { context.startActivity(open) }
+                                .onFailure {
+                                    Toast.makeText(
+                                        context,
+                                        "No browser available",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                        }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "How to get a free API key",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.OpenInNew,
+                        contentDescription = "Open VirusTotal API key guide",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
                 if (settings.virusTotalApiKey.isNotBlank()) {
                     VirusTotalQuotaRow(apiKey = settings.virusTotalApiKey)
                 }
