@@ -2668,7 +2668,26 @@ private fun HistoryEntryCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    if (verdict.result != null) {
+                    verdict.result?.let { result ->
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = if (result.cached) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        ) {
+                            Text(
+                                text = if (result.cached) "Cached" else "Fresh",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (result.cached) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
+                        }
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
                             contentDescription = "View scan details",
