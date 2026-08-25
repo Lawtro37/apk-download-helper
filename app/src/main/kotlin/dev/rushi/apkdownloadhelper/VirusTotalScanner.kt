@@ -49,6 +49,12 @@ internal object VirusTotalScanner {
         val firstSubmissionDate: Long?
         val lastAnalysisDate: Long?
         val reputation: Int?
+        /**
+         * True when the verdict came from a report VirusTotal already had on
+         * file (no upload); false when the file was freshly uploaded and
+         * analysed just now. Null verdicts (Error) are never cached.
+         */
+        val cached: Boolean
         /** Non-null when a XAPK/APKS/APKM bundle was scanned instead of one file. */
         val scannedFiles: Int?
         val bundleName: String?
@@ -67,6 +73,7 @@ internal object VirusTotalScanner {
             val totalEngines: Int,
             val votesHarmless: Int,
             val votesMalicious: Int,
+            override val cached: Boolean = false,
             // Set when a XAPK/APKS/APKM bundle was scanned: how many inner
             // APKs were scanned and the bundle's file name.
             override val scannedFiles: Int? = null,
@@ -89,6 +96,7 @@ internal object VirusTotalScanner {
             val engines: List<EngineDetection>,
             val suggestedThreatLabel: String?,
             val sandboxMalwareNames: List<String>,
+            override val cached: Boolean = false,
             // Set when a XAPK/APKS/APKM bundle was scanned: how many inner
             // APKs were scanned, how many were flagged, and the bundle name.
             // [fileName] then names the flagged inner APK.
@@ -107,6 +115,7 @@ internal object VirusTotalScanner {
             override val firstSubmissionDate: Long? get() = null
             override val lastAnalysisDate: Long? get() = null
             override val reputation: Int? get() = null
+            override val cached: Boolean get() = false
             override val scannedFiles: Int? get() = null
             override val bundleName: String? get() = null
             override val apkResults: List<BundleApkResult> get() = emptyList()
@@ -243,6 +252,7 @@ internal object VirusTotalScanner {
             return flagged.copy(
                 fileName = worst.second,
                 sizeBytes = null, // would be the inner APK, confusing next to the bundle
+                cached = results.all { it.first.cached },
                 scannedFiles = total,
                 flaggedFiles = malicious.size,
                 bundleName = bundleName,
@@ -272,6 +282,7 @@ internal object VirusTotalScanner {
             totalEngines = totalEngines,
             votesHarmless = 0,
             votesMalicious = 0,
+            cached = results.all { it.first.cached },
             scannedFiles = total,
             bundleName = bundleName,
             apkResults = apkResults
@@ -573,7 +584,9 @@ internal object VirusTotalScanner {
                 sandboxMalwareNames = attrs.sandboxMalwareNames(),
                 firstSubmissionDate = attrs.firstSubmissionDate,
                 lastAnalysisDate = attrs.lastAnalysisDate,
-                reputation = attrs.reputation
+                reputation = attrs.reputation,
+                // The report came from VirusTotal's database, not a new upload.
+                cached = true
             )
         } else {
             ScanResult.Clean(
@@ -587,7 +600,9 @@ internal object VirusTotalScanner {
                 lastAnalysisDate = attrs.lastAnalysisDate,
                 reputation = attrs.reputation,
                 votesHarmless = attrs.totalVotes?.harmless ?: 0,
-                votesMalicious = attrs.totalVotes?.malicious ?: 0
+                votesMalicious = attrs.totalVotes?.malicious ?: 0,
+                // The report came from VirusTotal's database, not a new upload.
+                cached = true
             )
         }
     }
@@ -621,7 +636,9 @@ internal object VirusTotalScanner {
                 sandboxMalwareNames = emptyList(),
                 firstSubmissionDate = null,
                 lastAnalysisDate = attrs.date,
-                reputation = null
+                reputation = null,
+                // Freshly uploaded and analysed just now.
+                cached = false
             )
         } else {
             ScanResult.Clean(
@@ -635,7 +652,9 @@ internal object VirusTotalScanner {
                 lastAnalysisDate = attrs.date,
                 reputation = null,
                 votesHarmless = 0,
-                votesMalicious = 0
+                votesMalicious = 0,
+                // Freshly uploaded and analysed just now.
+                cached = false
             )
         }
     }

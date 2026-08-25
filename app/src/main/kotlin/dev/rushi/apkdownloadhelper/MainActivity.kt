@@ -6046,6 +6046,27 @@ private fun ScanResultCard(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
+                if (!isError) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (scanResult.cached) {
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    ) {
+                        Text(
+                            text = if (scanResult.cached) "Cached report" else "Fresh scan",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (scanResult.cached) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             }
             Text(
                 text = detail,
