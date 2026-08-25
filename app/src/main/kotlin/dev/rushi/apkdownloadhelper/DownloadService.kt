@@ -500,18 +500,27 @@ internal class DownloadService : Service() {
             DownloadJobManager.Event.Scanning(candidate, "Uploading to VirusTotal…")
         )
 
-        val scanResult = VirusTotalScanner.scanDownloadedFile(file, apiKey) { status ->
-            DownloadJobManager.emit(
-                DownloadJobManager.Event.Scanning(candidate, status)
-            )
-            // Keep the progress notification in sync with the card: without
-            // this it stays on the last download text ("100% · …") for the
-            // whole scan, which can be a minute+ for a bundle.
-            notifySafe(
-                NOTIFICATION_ID_PROGRESS,
-                buildProgressNotification(candidate, 100, status)
-            )
-        }
+        val scanResult = VirusTotalScanner.scanDownloadedFile(
+            file,
+            apiKey,
+            onProgress = { status ->
+                DownloadJobManager.emit(
+                    DownloadJobManager.Event.Scanning(candidate, status)
+                )
+                // Keep the progress notification in sync with the card: without
+                // this it stays on the last download text ("100% · …") for the
+                // whole scan, which can be a minute+ for a bundle.
+                notifySafe(
+                    NOTIFICATION_ID_PROGRESS,
+                    buildProgressNotification(candidate, 100, status)
+                )
+            },
+            // Abort promptly when the user cancels: the scanner checks this
+            // between per-APK lookups and during rate-limit pauses, so a
+            // cancel lands within a second instead of after a 12s sleep.
+            // [downloadJob] is this job; cancel() flips its isActive false.
+            checkCancelled = { downloadJob?.isActive != true }
+        )
 
         DownloadJobManager.emit(
             DownloadJobManager.Event.ScanComplete(candidate, scanResult)

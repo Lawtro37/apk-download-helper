@@ -10,6 +10,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
 
@@ -154,14 +155,15 @@ internal object VirusTotalScanner {
     suspend fun scanDownloadedFile(
         file: File,
         apiKey: String,
-        onProgress: ((String) -> Unit)? = null
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
     ): ScanResult {
         val lower = file.name.lowercase()
         val isBundle = lower.endsWith(".xapk") || lower.endsWith(".apks") || lower.endsWith(".apkm")
         return if (isBundle) {
-            scanBundle(file, apiKey, onProgress)
+            scanBundle(file, apiKey, onProgress, checkCancelled)
         } else {
-            scanFile(file, apiKey, onProgress)
+            scanFile(file, apiKey, onProgress, checkCancelled)
         }
     }
 
@@ -173,7 +175,8 @@ internal object VirusTotalScanner {
     private suspend fun scanBundle(
         file: File,
         apiKey: String,
-        onProgress: ((String) -> Unit)? = null
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
     ): ScanResult {
         val apkNames = runCatching {
             ZipFile(file).use { zip ->
@@ -186,7 +189,7 @@ internal object VirusTotalScanner {
         }.getOrNull()
         if (apkNames.isNullOrEmpty()) {
             Log.d(TAG, "${file.name} is not a ZIP of APKs — scanning the container itself.")
-            return scanFile(file, apiKey, onProgress)
+            return scanFile(file, apiKey, onProgress, checkCancelled)
         }
 
         onProgress?.invoke("Extracting ${apkNames.size} APKs from ${file.name}…")
@@ -196,6 +199,7 @@ internal object VirusTotalScanner {
             val innerResults = mutableListOf<Pair<ScanResult, String>>()
             ZipFile(file).use { zip ->
                 apkNames.forEachIndexed { index, name ->
+                    if (checkCancelled()) throw CancellationException("Scan cancelled")
                     val safeName = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
                     val out = File(tempDir, safeName)
                     zip.getInputStream(zip.getEntry(name)).use { input ->
@@ -206,13 +210,24 @@ internal object VirusTotalScanner {
                     // looks stuck during the 12s rate-limit pauses between APKs.
                     onProgress?.invoke("Scanning APK ${index + 1} of $total: $name…")
                     innerResults.add(
-                        scanFile(out, apiKey) { status ->
-                            onProgress?.invoke("APK ${index + 1} of $total ($name): $status")
-                        } to name
+                        scanFile(
+                            out,
+                            apiKey,
+                            onProgress = { status ->
+                                onProgress?.invoke("APK ${index + 1} of $total ($name): $status")
+                            },
+                            checkCancelled = checkCancelled
+                        ) to name
                     )
                     // The free tier allows ~4 lookups per minute, so space the
                     // per-APK lookups out instead of hammering the rate limit.
-                    if (index < apkNames.size - 1) Thread.sleep(12_000)
+                    // Sleep in small slices so a cancel lands within a second.
+                    if (index < apkNames.size - 1) {
+                        repeat(12) {
+                            if (checkCancelled()) throw CancellationException("Scan cancelled")
+                            Thread.sleep(1000)
+                        }
+                    }
                 }
             }
             onProgress?.invoke("Aggregating results for ${apkNames.size} APKs…")
@@ -305,8 +320,10 @@ internal object VirusTotalScanner {
     suspend fun scanFile(
         file: File,
         apiKey: String,
-        onProgress: ((String) -> Unit)? = null
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
     ): ScanResult {
+        if (checkCancelled()) throw CancellationException("Scan cancelled")
         if (!file.exists()) {
             return ScanResult.Error("File not found: ${file.name}")
         }
@@ -338,7 +355,7 @@ internal object VirusTotalScanner {
             Log.d(TAG, "Upload complete, analysis ID: $analysisId")
 
             onProgress?.invoke("Waiting for analysis…")
-            val analysis = pollAnalysis(analysisId, apiKey, onProgress)
+            val analysis = pollAnalysis(analysisId, apiKey, onProgress, checkCancelled)
             parseAnalysis(analysis, file.name)
         } catch (e: Exception) {
             Log.e(TAG, "Scan failed", e)
@@ -515,11 +532,13 @@ internal object VirusTotalScanner {
     private fun pollAnalysis(
         analysisId: String,
         apiKey: String,
-        onProgress: ((String) -> Unit)?
+        onProgress: ((String) -> Unit)?,
+        checkCancelled: () -> Boolean = { false }
     ): AnalysisResponse {
         val maxAttempts = 90 // Poll every 3s for up to ~4.5 minutes.
         var lastStatus = ""
         repeat(maxAttempts) { attempt ->
+            if (checkCancelled()) throw CancellationException("Scan cancelled")
             Thread.sleep(3000)
 
             val request = Request.Builder()
