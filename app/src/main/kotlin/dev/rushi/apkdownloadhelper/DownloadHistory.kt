@@ -2,7 +2,7 @@ package dev.rushi.apkdownloadhelper
 
 import android.content.Context
 import android.net.Uri
-import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import java.io.File
 import java.lang.reflect.Type
@@ -13,7 +13,9 @@ internal data class ScanVerdict(
     val malicious: Boolean = false,
     val failed: Boolean = false,
     val sha256: String? = null,
-    val scannedFiles: Int? = null
+    val scannedFiles: Int? = null,
+    /** The full result, so the scan card can be reopened from history. */
+    val result: VirusTotalScanner.ScanResult? = null
 )
 
 internal data class DownloadHistoryEntry(
@@ -32,7 +34,12 @@ internal object DownloadHistoryStore {
     private const val PREFS_HISTORY = "download_history"
     private const val KEY_ENTRIES = "entries"
     private const val MAX_ENTRIES = 50
-    private val gson = Gson()
+    private val gson = GsonBuilder()
+        .registerTypeAdapter(
+            VirusTotalScanner.ScanResult::class.java,
+            VirusTotalScanner.ScanResultTypeAdapter()
+        )
+        .create()
     private val entriesType: Type = object : TypeToken<List<DownloadHistoryEntry>>() {}.type
 
     fun entries(context: Context): List<DownloadHistoryEntry> {

@@ -523,7 +523,8 @@ internal class DownloadService : Service() {
                 },
                 malicious = false,
                 sha256 = scanResult.sha256,
-                scannedFiles = scanResult.scannedFiles
+                scannedFiles = scanResult.scannedFiles,
+                result = scanResult
             )
             is VirusTotalScanner.ScanResult.Malicious -> ScanVerdict(
                 label = if (scanResult.scannedFiles != null) {
@@ -533,12 +534,14 @@ internal class DownloadService : Service() {
                 },
                 malicious = true,
                 sha256 = scanResult.sha256,
-                scannedFiles = scanResult.scannedFiles
+                scannedFiles = scanResult.scannedFiles,
+                result = scanResult
             )
             is VirusTotalScanner.ScanResult.Error -> ScanVerdict(
                 label = "Scan failed · ${scanResult.message.take(48)}",
                 malicious = false,
-                failed = true
+                failed = true,
+                result = scanResult
             )
         }
         DownloadJobManager.setPendingScan(DownloadJobManager.PendingScan.Decided(file))

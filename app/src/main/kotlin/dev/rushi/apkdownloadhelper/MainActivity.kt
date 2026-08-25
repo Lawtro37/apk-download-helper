@@ -37,6 +37,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +65,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CleaningServices
@@ -1267,24 +1270,7 @@ class MainActivity : ComponentActivity() {
             is DownloadJobManager.Event.ScanComplete -> {
                 val scanResult = event.result
                 val isMalicious = scanResult is VirusTotalScanner.ScanResult.Malicious
-                val detail = when (scanResult) {
-                    is VirusTotalScanner.ScanResult.Clean ->
-                        if (scanResult.scannedFiles != null) {
-                            "All ${scanResult.scannedFiles} APKs in the bundle are clean — " +
-                                "0 of ${scanResult.totalEngines} engines flagged them"
-                        } else {
-                            "0 of ${scanResult.totalEngines} antivirus engines flagged this file"
-                        }
-                    is VirusTotalScanner.ScanResult.Malicious ->
-                        if (scanResult.scannedFiles != null) {
-                            "${scanResult.flaggedFiles ?: 1} of ${scanResult.scannedFiles} APKs in the " +
-                                "bundle flagged — ${scanResult.detections} of ${scanResult.totalEngines} engines"
-                        } else {
-                            "${scanResult.detections} of ${scanResult.totalEngines} antivirus engines flagged this file"
-                        }
-                    is VirusTotalScanner.ScanResult.Error ->
-                        "Scan error: ${scanResult.message}"
-                }
+                val detail = scanResultDetail(scanResult)
                 uiState = UiState.ScanResult(
                     candidate = event.candidate,
                     scanResult = scanResult,
@@ -2436,7 +2422,6 @@ private fun HelperScreen(
                 }
                 is UiState.ScanResult -> item {
                     ScanResultCard(
-                        candidate = state.candidate,
                         scanResult = state.scanResult,
                         detail = state.detail,
                         isMalicious = state.isMalicious,
@@ -2582,6 +2567,8 @@ private fun HistoryEntryCard(
     onOpen: () -> Unit,
     onShare: () -> Unit
 ) {
+    val context = LocalContext.current
+    var showScanResult by remember { mutableStateOf(false) }
     HelperCard(cornerRadius = HelperDefaults.CompactCornerRadius) {
         Column(
             modifier = Modifier
@@ -2636,6 +2623,15 @@ private fun HistoryEntryCard(
             )
             entry.scanVerdict?.let { verdict ->
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .then(if (verdict.result != null) {
+                            Modifier.clickable { showScanResult = true }
+                        } else {
+                            Modifier
+                        })
+                        .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -2662,8 +2658,17 @@ private fun HistoryEntryCard(
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+                    if (verdict.result != null) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                            contentDescription = "View scan details",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
             if (usable) {
@@ -2683,8 +2688,7 @@ private fun HistoryEntryCard(
                         icon = Icons.Outlined.FolderOpen,
                         modifier = Modifier.weight(1f)
                     )
-                }
-            } else {
+                }                } else {
                 Text(
                     text = "File no longer available (temporary hand-off files are cleaned up after Morphe copies them).",
                     color = MaterialTheme.colorScheme.error,
@@ -2692,6 +2696,36 @@ private fun HistoryEntryCard(
                 )
             }
         }
+    }
+
+    val savedResult = entry.scanVerdict?.result
+    if (showScanResult && savedResult != null) {
+        AlertDialog(
+            onDismissRequest = { showScanResult = false },
+            confirmButton = {},
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    ScanResultCard(
+                        scanResult = savedResult,
+                        detail = scanResultDetail(savedResult),
+                        isMalicious = savedResult is VirusTotalScanner.ScanResult.Malicious,
+                        onProceed = {},
+                        onCancel = {},
+                        readOnly = true
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    HelperButton(
+                        text = "Close",
+                        onClick = { showScanResult = false },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        )
     }
 }
 
@@ -5884,15 +5918,47 @@ private fun ScanAskCard(
     }
 }
 
+private fun scanResultDetail(scanResult: VirusTotalScanner.ScanResult): String = when (scanResult) {
+    is VirusTotalScanner.ScanResult.Clean ->
+        if (scanResult.scannedFiles != null) {
+            "All ${scanResult.scannedFiles} APKs in the bundle are clean — " +
+                "0 of ${scanResult.totalEngines} engines flagged them"
+        } else {
+            "0 of ${scanResult.totalEngines} antivirus engines flagged this file"
+        }
+    is VirusTotalScanner.ScanResult.Malicious ->
+        if (scanResult.scannedFiles != null) {
+            "${scanResult.flaggedFiles ?: 1} of ${scanResult.scannedFiles} APKs in the " +
+                "bundle flagged — ${scanResult.detections} of ${scanResult.totalEngines} engines"
+        } else {
+            "${scanResult.detections} of ${scanResult.totalEngines} antivirus engines flagged this file"
+        }
+    is VirusTotalScanner.ScanResult.Error ->
+        "Scan error: ${scanResult.message}"
+}
+
+private fun openVirusTotalPage(context: Context, sha256: String) {
+    val open = Intent(
+        Intent.ACTION_VIEW,
+        Uri.parse("https://www.virustotal.com/gui/file/$sha256")
+    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+    runCatching { context.startActivity(open) }
+        .onFailure {
+            Toast.makeText(context, "No browser available", Toast.LENGTH_SHORT).show()
+        }
+}
+
 @Composable
 private fun ScanResultCard(
-    candidate: DownloadCandidate,
     scanResult: VirusTotalScanner.ScanResult,
     detail: String,
     isMalicious: Boolean,
     onProceed: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    readOnly: Boolean = false
 ) {
+    val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current
     val isError = scanResult is VirusTotalScanner.ScanResult.Error
     val containerColor = if (isMalicious) {
         MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
@@ -6009,21 +6075,108 @@ private fun ScanResultCard(
                     color = MaterialTheme.colorScheme.error
                 )
             }
+            if (scanResult.apkResults.isNotEmpty()) {
+                androidx.compose.material3.HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = colors.outline.copy(alpha = 0.3f)
+                )
+                Text(
+                    text = "APK details",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                scanResult.apkResults.forEach { apk ->
+                    val apkVerdictColor = when {
+                        apk.failed -> colors.onSurfaceVariant
+                        apk.detections > 0 -> colors.error
+                        else -> colors.primary
+                    }
+                    val apkIcon = when {
+                        apk.failed -> Icons.Outlined.HelpOutline
+                        apk.detections > 0 -> Icons.Outlined.Warning
+                        else -> Icons.Outlined.CheckCircle
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = apkIcon,
+                            contentDescription = null,
+                            tint = apkVerdictColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = apk.name,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${apk.detections}/${apk.totalEngines}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = apkVerdictColor
+                        )
+                        if (apk.sha256 != null) {
+                            Icon(
+                                imageVector = Icons.Outlined.OpenInNew,
+                                contentDescription = "Open ${apk.name} in VirusTotal",
+                                tint = colors.primary,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { openVirusTotalPage(context, apk.sha256) }
+                                    .padding(2.dp)
+                            )
+                        }
+                    }
+                    if (apk.detections > 0 && apk.engines.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 22.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            apk.engines.take(3).forEach { hit ->
+                                Text(
+                                    text = "${hit.engine} → ${hit.result}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.error,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (apk.engines.size > 3) {
+                                Text(
+                                    text = "+${apk.engines.size - 3} more engines",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             ScanMetaRows(scanResult)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                HelperButton(
-                    text = "Proceed",
-                    onClick = onProceed,
-                    modifier = Modifier.weight(1f)
-                )
-                HelperOutlinedButton(
-                    text = "Cancel",
-                    onClick = onCancel,
-                    modifier = Modifier.weight(1f)
-                )
+            if (!readOnly) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HelperButton(
+                        text = "Proceed",
+                        onClick = onProceed,
+                        modifier = Modifier.weight(1f)
+                    )
+                    HelperOutlinedButton(
+                        text = "Cancel",
+                        onClick = onCancel,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
@@ -6104,16 +6257,7 @@ private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        val open = Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://www.virustotal.com/gui/file/$hash")
-                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                        runCatching { context.startActivity(open) }
-                            .onFailure {
-                                Toast.makeText(context, "No browser available", Toast.LENGTH_SHORT).show()
-                            }
-                    }
+                    .clickable { openVirusTotalPage(context, hash) }
                     .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)

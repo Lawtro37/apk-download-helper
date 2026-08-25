@@ -52,6 +52,8 @@ internal object VirusTotalScanner {
         /** Non-null when a XAPK/APKS/APKM bundle was scanned instead of one file. */
         val scannedFiles: Int?
         val bundleName: String?
+        /** Per-inner-APK outcomes for bundle scans (empty for single files). */
+        val apkResults: List<BundleApkResult>
 
         data class Clean(
             override val sha256: String?,
@@ -68,7 +70,8 @@ internal object VirusTotalScanner {
             // Set when a XAPK/APKS/APKM bundle was scanned: how many inner
             // APKs were scanned and the bundle's file name.
             override val scannedFiles: Int? = null,
-            override val bundleName: String? = null
+            override val bundleName: String? = null,
+            override val apkResults: List<BundleApkResult> = emptyList()
         ) : ScanResult
 
         data class Malicious(
@@ -91,7 +94,8 @@ internal object VirusTotalScanner {
             // [fileName] then names the flagged inner APK.
             override val scannedFiles: Int? = null,
             val flaggedFiles: Int? = null,
-            override val bundleName: String? = null
+            override val bundleName: String? = null,
+            override val apkResults: List<BundleApkResult> = emptyList()
         ) : ScanResult
 
         data class Error(val message: String) : ScanResult {
@@ -105,6 +109,7 @@ internal object VirusTotalScanner {
             override val reputation: Int? get() = null
             override val scannedFiles: Int? get() = null
             override val bundleName: String? get() = null
+            override val apkResults: List<BundleApkResult> get() = emptyList()
         }
     }
 
@@ -113,6 +118,16 @@ internal object VirusTotalScanner {
         val engine: String,
         val result: String,
         val category: String
+    )
+
+    /** One inner APK's outcome inside a scanned bundle. */
+    data class BundleApkResult(
+        val name: String,
+        val totalEngines: Int,
+        val detections: Int,
+        val sha256: String?,
+        val engines: List<EngineDetection> = emptyList(),
+        val failed: Boolean = false
     )
 
     /** Free-tier request quotas reported by /users/{id}/overall_quotas. */
@@ -194,6 +209,30 @@ internal object VirusTotalScanner {
         bundleName: String
     ): ScanResult {
         val total = results.size
+        val apkResults = results.map { (result, name) ->
+            when (result) {
+                is ScanResult.Clean -> BundleApkResult(
+                    name = name,
+                    totalEngines = result.totalEngines,
+                    detections = 0,
+                    sha256 = result.sha256
+                )
+                is ScanResult.Malicious -> BundleApkResult(
+                    name = name,
+                    totalEngines = result.totalEngines,
+                    detections = result.detections,
+                    sha256 = result.sha256,
+                    engines = result.engines
+                )
+                is ScanResult.Error -> BundleApkResult(
+                    name = name,
+                    totalEngines = 0,
+                    detections = 0,
+                    sha256 = null,
+                    failed = true
+                )
+            }
+        }
         val malicious = results.filter { it.first is ScanResult.Malicious }
         val errors = results.filter { it.first is ScanResult.Error }
         val clean = results.filter { it.first is ScanResult.Clean }
@@ -206,7 +245,8 @@ internal object VirusTotalScanner {
                 sizeBytes = null, // would be the inner APK, confusing next to the bundle
                 scannedFiles = total,
                 flaggedFiles = malicious.size,
-                bundleName = bundleName
+                bundleName = bundleName,
+                apkResults = apkResults
             )
         }
         if (errors.isNotEmpty()) {
@@ -233,7 +273,8 @@ internal object VirusTotalScanner {
             votesHarmless = 0,
             votesMalicious = 0,
             scannedFiles = total,
-            bundleName = bundleName
+            bundleName = bundleName,
+            apkResults = apkResults
         )
     }
 
@@ -642,6 +683,40 @@ internal object VirusTotalScanner {
     // --- Response data classes ---
 
     private class AlreadySubmittedException(message: String) : Exception(message)
+
+    /**
+     * Gson adapter that round-trips a [ScanResult] (a sealed interface Gson
+     * cannot deserialize on its own) by tagging each object with its kind.
+     */
+    internal class ScanResultTypeAdapter :
+        com.google.gson.JsonSerializer<ScanResult>, com.google.gson.JsonDeserializer<ScanResult> {
+        override fun serialize(
+            src: ScanResult,
+            typeOfSrc: java.lang.reflect.Type,
+            context: com.google.gson.JsonSerializationContext
+        ): com.google.gson.JsonElement {
+            val obj = context.serialize(src, src.javaClass).asJsonObject
+            obj.addProperty("kind", when (src) {
+                is ScanResult.Clean -> "CLEAN"
+                is ScanResult.Malicious -> "MALICIOUS"
+                is ScanResult.Error -> "ERROR"
+            })
+            return obj
+        }
+
+        override fun deserialize(
+            json: com.google.gson.JsonElement,
+            typeOfT: java.lang.reflect.Type,
+            context: com.google.gson.JsonDeserializationContext
+        ): ScanResult {
+            val obj = json.asJsonObject
+            return when (obj.get("kind")?.asString) {
+                "CLEAN" -> context.deserialize(json, ScanResult.Clean::class.java)
+                "MALICIOUS" -> context.deserialize(json, ScanResult.Malicious::class.java)
+                else -> context.deserialize(json, ScanResult.Error::class.java)
+            }
+        }
+    }
 
     private class PayloadTooLargeException(message: String) : Exception(message)
 
