@@ -111,10 +111,11 @@ internal object DownloadJobManager {
             val candidate: DownloadCandidate,
             val status: String
         ) : Event
-        /** VirusTotal scan is in progress. */
+        /** VirusTotal scan is in progress. [percent] is 0..100, null when unknown. */
         data class Scanning(
             val candidate: DownloadCandidate,
-            val status: String
+            val status: String,
+            val percent: Int? = null
         ) : Event
         /** VirusTotal scan completed with results. */
         data class ScanComplete(
@@ -497,22 +498,32 @@ internal class DownloadService : Service() {
         val apiKey = settings.virusTotalApiKey
 
         DownloadJobManager.emit(
-            DownloadJobManager.Event.Scanning(candidate, "Uploading to VirusTotal…")
+            DownloadJobManager.Event.Scanning(candidate, "Scanning…")
         )
 
+        // Capture the latest human status so the percent callback can pair a
+        // real 0-100% bar with the right label (e.g. "APK 3 of 4 (split_1.apk):
+        // Waiting for analysis… · 82%").
+        var scanStatus = "Scanning…"
         val scanResult = VirusTotalScanner.scanDownloadedFile(
             file,
             apiKey,
             onProgress = { status ->
+                scanStatus = status
                 DownloadJobManager.emit(
                     DownloadJobManager.Event.Scanning(candidate, status)
                 )
-                // Keep the progress notification in sync with the card: without
-                // this it stays on the last download text ("100% · …") for the
-                // whole scan, which can be a minute+ for a bundle.
+            },
+            onPercent = { pct ->
+                // Drive a real 0-100% bar through the scan phases (extraction,
+                // per-APK hashing, report checks, upload, analysis poll) instead
+                // of sitting on a static 100% from the download.
+                DownloadJobManager.emit(
+                    DownloadJobManager.Event.Scanning(candidate, scanStatus, percent = pct)
+                )
                 notifySafe(
                     NOTIFICATION_ID_PROGRESS,
-                    buildProgressNotification(candidate, 100, status)
+                    buildProgressNotification(candidate, pct, scanStatus)
                 )
             },
             // Abort promptly when the user cancels: the scanner checks this

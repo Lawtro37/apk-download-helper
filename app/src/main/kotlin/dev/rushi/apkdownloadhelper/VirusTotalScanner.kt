@@ -235,14 +235,15 @@ internal object VirusTotalScanner {
         file: File,
         apiKey: String,
         onProgress: ((String) -> Unit)? = null,
+        onPercent: ((Int) -> Unit)? = null,
         checkCancelled: () -> Boolean = { false }
     ): ScanResult {
         val lower = file.name.lowercase()
         val isBundle = lower.endsWith(".xapk") || lower.endsWith(".apks") || lower.endsWith(".apkm")
         return if (isBundle) {
-            scanBundle(file, apiKey, onProgress, checkCancelled)
+            scanBundle(file, apiKey, onProgress, onPercent, checkCancelled)
         } else {
-            scanFile(file, apiKey, onProgress, checkCancelled)
+            scanFile(file, apiKey, onProgress, onPercent, checkCancelled)
         }
     }
 
@@ -255,6 +256,7 @@ internal object VirusTotalScanner {
         file: File,
         apiKey: String,
         onProgress: ((String) -> Unit)? = null,
+        onPercent: ((Int) -> Unit)? = null,
         checkCancelled: () -> Boolean = { false }
     ): ScanResult {
         // Open the bundle ONCE. For large APKS files the central-directory read
@@ -263,6 +265,7 @@ internal object VirusTotalScanner {
         // which read as "stuck at Extracting". One open, one pass: enumerate,
         // extract, and emit progress per APK without re-reading the archive.
         onProgress?.invoke("Opening ${file.name}…")
+        onPercent?.invoke(1)
         val extractStartTotal = System.currentTimeMillis()
         val tempDir = File.createTempFile("vt-bundle", "").apply { delete(); mkdirs() }
         val innerResults = mutableListOf<Pair<ScanResult, String>>()
@@ -274,7 +277,7 @@ internal object VirusTotalScanner {
             val apkNames = zipEntriesOf(file)
             if (apkNames.isEmpty()) {
                 Log.d(TAG, "${file.name} is not a ZIP of APKs — scanning the container itself.")
-                return scanFile(file, apiKey, onProgress, checkCancelled)
+                return scanFile(file, apiKey, onProgress, onPercent, checkCancelled)
             }
             ZipFile(file).use { zip ->
                 val total = apkNames.size
@@ -282,6 +285,7 @@ internal object VirusTotalScanner {
                     // Warn ahead of time that extraction is about to run, so the UI
                     // never sits on a stale message during the whole extraction pass.
                     onProgress?.invoke("Extracting $total APKs from ${file.name}…")
+                    onPercent?.invoke(5)
                     apkNames.forEachIndexed { index, name ->
                         if (checkCancelled()) throw CancellationException("Scan cancelled")
                         val safeName = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -297,11 +301,18 @@ internal object VirusTotalScanner {
                                 " in ${(System.currentTimeMillis() - extractStart) / 1000}s — next: scan…"
                         )
                         innerResults.add(
+                            // Each APK occupies a slice from 5 to 100% weighted by
+                            // its index, so the bar marches as the scan advances.
                             scanFile(
                                 out,
                                 apiKey,
                                 onProgress = { status ->
                                     onProgress?.invoke("APK ${index + 1} of $total ($name): $status")
+                                },
+                                onPercent = { inner ->
+                                    val sliceStart = 5 + (index * 95) / total
+                                    val sliceEnd = 5 + ((index + 1) * 95) / total
+                                    onPercent?.invoke(sliceStart + ((inner * (sliceEnd - sliceStart)) / 100))
                                 },
                                 checkCancelled = checkCancelled
                             ) to name
@@ -310,6 +321,7 @@ internal object VirusTotalScanner {
                 }
             }
             onProgress?.invoke("Aggregating results for ${apkNames.size} APKs…")
+            onPercent?.invoke(99)
             aggregateBundle(innerResults, file.name)
         } catch (e: CancellationException) {
             throw e
@@ -418,6 +430,7 @@ internal object VirusTotalScanner {
         file: File,
         apiKey: String,
         onProgress: ((String) -> Unit)? = null,
+        onPercent: ((Int) -> Unit)? = null,
         checkCancelled: () -> Boolean = { false }
     ): ScanResult {
         if (checkCancelled()) throw CancellationException("Scan cancelled")
@@ -429,21 +442,25 @@ internal object VirusTotalScanner {
         }
 
         return try {
+            onPercent?.invoke(5)
             val hashStart = System.currentTimeMillis()
             val sha256 = sha256Of(file)
             Log.d(TAG, "SHA-256 of ${file.name} (${file.length()} bytes) in ${System.currentTimeMillis() - hashStart}ms: $sha256")
 
             // Fast path: the file is already in VirusTotal's database.
             onProgress?.invoke("Checking VirusTotal…")
+            onPercent?.invoke(25)
             val fetchStart = System.currentTimeMillis()
             val report = fetchFileReport(sha256, apiKey, onProgress, checkCancelled)
             Log.d(TAG, "fetchFileReport(${file.name}) returned in ${System.currentTimeMillis() - fetchStart}ms")
             report?.let { r ->
                 Log.d(TAG, "File already analysed — using existing report.")
+                onPercent?.invoke(100)
                 return parseFileReport(r, file.name)
             }
 
             onProgress?.invoke("Uploading ${file.name} to VirusTotal…")
+            onPercent?.invoke(45)
             val analysisId = try {
                 uploadFile(file, apiKey, onProgress, checkCancelled)
             } catch (e: AlreadySubmittedException) {
@@ -451,12 +468,15 @@ internal object VirusTotalScanner {
                 Log.d(TAG, "Upload rejected (already submitted) — fetching report.")
                 val report = fetchFileReport(sha256, apiKey, onProgress, checkCancelled)
                     ?: throw Exception("File already submitted but no report was returned")
+                onPercent?.invoke(100)
                 return parseFileReport(report, file.name)
             }
             Log.d(TAG, "Upload complete, analysis ID: $analysisId")
 
             onProgress?.invoke("Waiting for analysis…")
-            val analysis = pollAnalysis(analysisId, apiKey, onProgress, checkCancelled)
+            onPercent?.invoke(60)
+            val analysis = pollAnalysis(analysisId, apiKey, onProgress, onPercent, checkCancelled)
+            onPercent?.invoke(100)
             parseAnalysis(analysis, file.name)
         } catch (e: Exception) {
             Log.e(TAG, "Scan failed", e)
@@ -659,6 +679,7 @@ internal object VirusTotalScanner {
         analysisId: String,
         apiKey: String,
         onProgress: ((String) -> Unit)?,
+        onPercent: ((Int) -> Unit)?,
         checkCancelled: () -> Boolean = { false }
     ): AnalysisResponse {
         val maxAttempts = 90 // Poll every 3s for up to ~4.5 minutes.
@@ -694,7 +715,11 @@ internal object VirusTotalScanner {
             val status = analysis.data?.attributes?.status
             Log.d(TAG, "Analysis poll ${attempt + 1}: status=$status")
 
+            // Rough progress 60→100 while polling (each attempt ≈ a slice).
+            onPercent?.invoke(60 + ((attempt + 1) * 40) / maxAttempts)
+
             if (status == "completed") {
+                onPercent?.invoke(100)
                 return analysis
             }
             if (status != lastStatus) {

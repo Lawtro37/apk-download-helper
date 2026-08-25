@@ -1252,18 +1252,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
             is DownloadJobManager.Event.Scanning -> {
+                val pct = event.percent ?: 100
                 uiState = if (fastModeActive) {
                     UiState.FastMode(
                         FastModeProgress(
                             sourceLabel = event.candidate.source.label,
                             detail = event.status,
-                            percent = 100
+                            percent = pct
                         )
                     )
                 } else {
                     UiState.Downloading(
                         event.candidate,
-                        percent = 100,
+                        percent = pct,
                         statusMessage = event.status
                     )
                 }
