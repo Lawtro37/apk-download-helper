@@ -33,6 +33,15 @@ internal object VirusTotalScanner {
     private const val TAG = "VirusTotalScanner"
     private const val BASE_URL = "https://www.virustotal.com/api/v3"
 
+    /**
+     * Minimum gap enforced between every VirusTotal API call. The free tier
+     * allows ~4 lookups/min, so this paces report fetches and uploads globally
+     * (across bundle APKs and any batch work) instead of relying on fixed
+     * sleeps that either overshoot a fast network or trip 429s on a busy one.
+     * 16s ≈ 3.75 calls/min, leaving headroom for the polling retry.
+     */
+    internal const val MIN_CALL_GAP_MS = 16_000L
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -145,7 +154,77 @@ internal object VirusTotalScanner {
         val hourlyUsed: Int, val hourlyAllowed: Int,
         val dailyUsed: Int, val dailyAllowed: Int,
         val monthlyUsed: Int, val monthlyAllowed: Int
-    )
+    ) {
+        val remainingDaily: Int get() = (dailyAllowed - dailyUsed).coerceAtLeast(0)
+        val remainingHourly: Int get() = (hourlyAllowed - hourlyUsed).coerceAtLeast(0)
+    }
+
+    /**
+     * Global flat-rate token gate between VirusTotal calls. Every API call
+     * (report fetch, upload, poll, quota) records its timestamp here, so calls
+     * spaced across separate files — a bundle's inner APKs today, a bulk queue
+     * later — never stampede the 4/min limit. [awaitSlot] sleeps until it is
+     * this caller's turn, checking cancellation each second so a cancel lands
+     * promptly.
+     */
+    internal class RateLimiter(private val minGapMs: Long = MIN_CALL_GAP_MS) {
+        private val lock = Any()
+        private var lastCallAtMs = 0L
+
+        /** Wait until at least [minGapMs] has passed since the previous call. */
+        fun awaitSlot(checkCancelled: () -> Boolean = { false }) {
+            while (true) {
+                val waitMs: Long
+                synchronized(lock) {
+                    waitMs = lastCallAtMs + minGapMs - System.currentTimeMillis()
+                    if (waitMs > 0) {
+                        // Not our turn yet.
+                    } else {
+                        lastCallAtMs = System.currentTimeMillis()
+                        return
+                    }
+                }
+                // Sleep in 1s slices so cancellation is honoured within a second.
+                var remaining = waitMs
+                while (remaining > 0) {
+                    if (checkCancelled()) throw CancellationException("Scan cancelled")
+                    Thread.sleep(1000)
+                    remaining -= 1000
+                }
+            }
+        }
+
+        /**
+         * Milliseconds until the next slot is free, or 0 if one is available now.
+         * Read-only, used to render "waiting Xs for rate limit" in the UI.
+         */
+        fun millisUntilNextSlot(): Long {
+            synchronized(lock) {
+                val wait = lastCallAtMs + minGapMs - System.currentTimeMillis()
+                return wait.coerceAtLeast(0)
+            }
+        }
+    }
+
+    /**
+     * The scanner's shared rate limiter. Making it the single gate means the
+     * pacing carries across every scan in a session, so a batch of files is
+     * throttled as a whole rather than each file starting fresh.
+     */
+    internal val rateLimiter = RateLimiter()
+
+    /** Pace the next VirusTotal call and surface any wait as progress. */
+    internal fun pace(
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
+    ) {
+        val waitMs = rateLimiter.millisUntilNextSlot()
+        if (waitMs > 0) {
+            Log.d(TAG, "Pacing: waiting ${waitMs / 1000}s for rate limit")
+            onProgress?.invoke("Waiting ${(waitMs / 1000) + 1}s for rate limit…")
+        }
+        rateLimiter.awaitSlot(checkCancelled)
+    }
 
     /**
      * Scan a downloaded file. XAPK/APKS/APKM bundles are split into their
@@ -219,15 +298,10 @@ internal object VirusTotalScanner {
                             checkCancelled = checkCancelled
                         ) to name
                     )
-                    // The free tier allows ~4 lookups per minute, so space the
-                    // per-APK lookups out instead of hammering the rate limit.
-                    // Sleep in small slices so a cancel lands within a second.
-                    if (index < apkNames.size - 1) {
-                        repeat(12) {
-                            if (checkCancelled()) throw CancellationException("Scan cancelled")
-                            Thread.sleep(1000)
-                        }
-                    }
+                    // The shared rate limiter enforces the free-tier gap between
+                    // per-APK lookups and across scans, so a bundle never
+                    // stamps the 4/min limit. Each wait surfaces live so the UI
+                    // shows "waiting Xs for rate limit" instead of a frozen bar.
                 }
             }
             onProgress?.invoke("Aggregating results for ${apkNames.size} APKs…")
@@ -337,18 +411,18 @@ internal object VirusTotalScanner {
 
             // Fast path: the file is already in VirusTotal's database.
             onProgress?.invoke("Checking VirusTotal…")
-            fetchFileReport(sha256, apiKey)?.let { report ->
+            fetchFileReport(sha256, apiKey, onProgress, checkCancelled)?.let { report ->
                 Log.d(TAG, "File already analysed — using existing report.")
                 return parseFileReport(report, file.name)
             }
 
             onProgress?.invoke("Uploading ${file.name} to VirusTotal…")
             val analysisId = try {
-                uploadFile(file, apiKey)
+                uploadFile(file, apiKey, onProgress, checkCancelled)
             } catch (e: AlreadySubmittedException) {
                 // Analysed between our check and the upload: fetch the report.
                 Log.d(TAG, "Upload rejected (already submitted) — fetching report.")
-                val report = fetchFileReport(sha256, apiKey)
+                val report = fetchFileReport(sha256, apiKey, onProgress, checkCancelled)
                     ?: throw Exception("File already submitted but no report was returned")
                 return parseFileReport(report, file.name)
             }
@@ -371,6 +445,8 @@ internal object VirusTotalScanner {
     fun fetchQuotaUsage(apiKey: String): QuotaUsage? {
         if (apiKey.isBlank()) return null
         return try {
+            // Quota lookups are read-only and do not consume quota, so they are
+            // NOT paced through the limiter — they must never stall a scan.
             val request = Request.Builder()
                 .url("$BASE_URL/users/$apiKey/overall_quotas")
                 .addHeader("x-apikey", apiKey)
@@ -411,7 +487,13 @@ internal object VirusTotalScanner {
     }
 
     /** Returns the stored report for [sha256], or null if VirusTotal has never seen it. */
-    private fun fetchFileReport(sha256: String, apiKey: String): FileReportResponse? {
+    private fun fetchFileReport(
+        sha256: String,
+        apiKey: String,
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
+    ): FileReportResponse? {
+        pace(onProgress, checkCancelled)
         val request = Request.Builder()
             .url("$BASE_URL/files/$sha256")
             .addHeader("x-apikey", apiKey)
@@ -438,21 +520,32 @@ internal object VirusTotalScanner {
         return gson.fromJson(body, FileReportResponse::class.java)
     }
 
-    private fun uploadFile(file: File, apiKey: String): String {
+    private fun uploadFile(
+        file: File,
+        apiKey: String,
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
+    ): String {
         if (file.length() > 32L * 1024 * 1024) {
             // POST /files rejects anything above 32 MB; use the presigned URL.
-            return uploadViaUploadUrl(file, apiKey)
+            return uploadViaUploadUrl(file, apiKey, onProgress, checkCancelled)
         }
         return try {
-            uploadDirect(file, apiKey)
+            uploadDirect(file, apiKey, onProgress, checkCancelled)
         } catch (e: PayloadTooLargeException) {
             Log.d(TAG, "Direct upload rejected (too large), falling back to upload URL.")
-            uploadViaUploadUrl(file, apiKey)
+            uploadViaUploadUrl(file, apiKey, onProgress, checkCancelled)
         }
     }
 
     /** POST the file straight to /files (only admits files up to 32 MB). */
-    private fun uploadDirect(file: File, apiKey: String): String {
+    private fun uploadDirect(
+        file: File,
+        apiKey: String,
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
+    ): String {
+        pace(onProgress, checkCancelled)
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -491,7 +584,13 @@ internal object VirusTotalScanner {
      * Request a single-use presigned upload URL, then POST the file to it.
      * Admits files up to 650 MB.
      */
-    private fun uploadViaUploadUrl(file: File, apiKey: String): String {
+    private fun uploadViaUploadUrl(
+        file: File,
+        apiKey: String,
+        onProgress: ((String) -> Unit)? = null,
+        checkCancelled: () -> Boolean = { false }
+    ): String {
+        pace(onProgress, checkCancelled)
         val urlRequest = Request.Builder()
             .url("$BASE_URL/files/upload_url")
             .addHeader("x-apikey", apiKey)
@@ -539,6 +638,9 @@ internal object VirusTotalScanner {
         var lastStatus = ""
         repeat(maxAttempts) { attempt ->
             if (checkCancelled()) throw CancellationException("Scan cancelled")
+            // Pace each poll through the shared limiter too: analysis polls
+            // count against the same 4/min quota.
+            pace(onProgress, checkCancelled)
             Thread.sleep(3000)
 
             val request = Request.Builder()
@@ -556,6 +658,7 @@ internal object VirusTotalScanner {
                 Thread.sleep(15_000)
                 return@repeat
             }
+
             if (!response.isSuccessful) {
                 throw Exception("Analysis poll failed (${response.code}): $body")
             }
