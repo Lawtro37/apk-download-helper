@@ -33,8 +33,29 @@ internal data class HelperSettings(
     val disabledSources: Set<DownloadSource> = emptySet(),
     val themeMode: ThemeMode = ThemeMode.DARK,
     val dynamicColors: Boolean = true,
-    val adGuardDns: Boolean = false
+    val adGuardDns: Boolean = false,
+    val virusTotalEnabled: Boolean = false,
+    val virusTotalApiKey: String = "",
+    val virusTotalScanMode: VirusTotalScanMode = VirusTotalScanMode.ASK
 )
+
+internal enum class VirusTotalScanMode(
+    val title: String,
+    val description: String
+) {
+    NEVER(
+        title = "Never scan",
+        description = "Skip VirusTotal scanning entirely."
+    ),
+    ASK(
+        title = "Ask before scanning",
+        description = "Prompt to scan each download before handing off."
+    ),
+    ALWAYS(
+        title = "Always scan",
+        description = "Automatically scan every download before handing off."
+    )
+}
 
 internal enum class ThemeMode(
     val title: String,
@@ -135,7 +156,13 @@ internal fun Context.loadHelperSettings(): HelperSettings {
             ThemeMode.DARK
         ),
         dynamicColors = prefs.getBoolean("dynamic_colors", true),
-        adGuardDns = prefs.getBoolean("adguard_dns", false)
+        adGuardDns = prefs.getBoolean("adguard_dns", false),
+        virusTotalEnabled = prefs.getBoolean("virus_total_enabled", false),
+        virusTotalApiKey = prefs.getString("virus_total_api_key", "") ?: "",
+        virusTotalScanMode = enumValueOrDefault(
+            prefs.getString("virus_total_scan_mode", null),
+            VirusTotalScanMode.ASK
+        )
     )
     logcatLoggingEnabled = settings.logcatLogging
     adGuardDnsEnabled = settings.adGuardDns
@@ -156,6 +183,9 @@ internal fun Context.saveHelperSettings(settings: HelperSettings) {
         .putString("theme_mode", settings.themeMode.name)
         .putBoolean("dynamic_colors", settings.dynamicColors)
         .putBoolean("adguard_dns", settings.adGuardDns)
+        .putBoolean("virus_total_enabled", settings.virusTotalEnabled)
+        .putString("virus_total_api_key", settings.virusTotalApiKey)
+        .putString("virus_total_scan_mode", settings.virusTotalScanMode.name)
         .apply()
 }
 

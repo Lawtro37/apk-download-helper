@@ -97,6 +97,10 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -110,6 +114,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -377,7 +382,9 @@ class MainActivity : ComponentActivity() {
                         onSkipFastModeMismatch = { fastModeChoose(FastModeChoice.NEXT) },
                         onOpenMorphe = ::openMorpheManager,
                         onSolveCaptcha = ::openCaptchaBrowser,
-                        onRequestFileTypeChange = ::changeRequestedFileType
+                        onRequestFileTypeChange = ::changeRequestedFileType,
+                        onProceedAfterScan = ::proceedAfterScan,
+                        onCancelAfterScan = ::cancelAfterScan
                     )
                 }
                 val offer = reuseOffer
@@ -1056,6 +1063,20 @@ class MainActivity : ComponentActivity() {
         fastModeDecision?.complete(choice)
     }
 
+    private fun proceedAfterScan() {
+        startService(
+            Intent(this, DownloadService::class.java).setAction(ACTION_SCAN_PROCEED)
+        )
+        uiState = UiState.Loading
+    }
+
+    private fun cancelAfterScan() {
+        startService(
+            Intent(this, DownloadService::class.java).setAction(ACTION_SCAN_CANCEL)
+        )
+        uiState = UiState.Loading
+    }
+
     private suspend fun fastModeNext(request: HelperRequest) {
         val queue = fastModeQueue ?: return
         while (queue.isNotEmpty()) {
@@ -1222,6 +1243,42 @@ class MainActivity : ComponentActivity() {
                         statusMessage = event.status
                     )
                 }
+            }
+            is DownloadJobManager.Event.Scanning -> {
+                uiState = if (fastModeActive) {
+                    UiState.FastMode(
+                        FastModeProgress(
+                            sourceLabel = event.candidate.source.label,
+                            detail = event.status,
+                            percent = 100
+                        )
+                    )
+                } else {
+                    UiState.Downloading(
+                        event.candidate,
+                        percent = 100,
+                        statusMessage = event.status
+                    )
+                }
+            }
+            is DownloadJobManager.Event.ScanComplete -> {
+                val scanResult = event.result
+                val isMalicious = scanResult is VirusTotalScanner.ScanResult.Malicious
+                val detail = when (scanResult) {
+                    is VirusTotalScanner.ScanResult.Clean ->
+                        "Clean — 0/${scanResult.totalEngines} detections"
+                    is VirusTotalScanner.ScanResult.Malicious ->
+                        "${scanResult.detections}/${scanResult.totalEngines} detections: " +
+                            scanResult.detectionNames.joinToString(", ")
+                    is VirusTotalScanner.ScanResult.Error ->
+                        "Scan error: ${scanResult.message}"
+                }
+                uiState = UiState.ScanResult(
+                    candidate = event.candidate,
+                    scanResult = scanResult,
+                    detail = detail,
+                    isMalicious = isMalicious
+                )
             }
             is DownloadJobManager.Event.Completed -> {
                 // StateFlow replays its last value to every new collector, so a
@@ -2178,7 +2235,9 @@ private fun HelperScreen(
     onSkipFastModeMismatch: () -> Unit,
     onOpenMorphe: () -> Unit,
     onSolveCaptcha: (DownloadCandidate) -> Unit,
-    onRequestFileTypeChange: (String) -> Unit
+    onRequestFileTypeChange: (String) -> Unit,
+    onProceedAfterScan: () -> Unit,
+    onCancelAfterScan: () -> Unit
 ) {
     var showSettings by remember { mutableStateOf(false) }
     var pendingFilePick by remember { mutableStateOf<DownloadCandidate?>(null) }
@@ -2356,6 +2415,16 @@ private fun HelperScreen(
 
                 is UiState.CheckingPickedFile -> item { CheckingPickedFileState(state) }
                 is UiState.Downloading -> item { DownloadingState(state, onCancelDownload) }
+                is UiState.ScanResult -> item {
+                    ScanResultCard(
+                        candidate = state.candidate,
+                        scanResult = state.scanResult,
+                        detail = state.detail,
+                        isMalicious = state.isMalicious,
+                        onProceed = onProceedAfterScan,
+                        onCancel = onCancelAfterScan
+                    )
+                }
                 is UiState.Error -> item {
                     ErrorState(message = state.message, onRefresh = onRefresh, onCancel = onCancel)
                 }
@@ -2757,6 +2826,44 @@ private fun HelperSettingsCard(
             )
         }
 
+        SettingsGroupCard("Security") {
+            SettingSwitchRow(
+                icon = Icons.Outlined.Shield,
+                title = "VirusTotal scanning",
+                description = "Scan downloaded files with VirusTotal before returning them to Morphe.",
+                checked = settings.virusTotalEnabled,
+                onCheckedChange = {
+                    onSettingsChange(settings.copy(virusTotalEnabled = it))
+                }
+            )
+            if (settings.virusTotalEnabled) {
+                VirusTotalScanMode.entries.forEach { mode ->
+                    SettingsOptionCard(
+                        icon = when (mode) {
+                            VirusTotalScanMode.NEVER -> Icons.Outlined.Block
+                            VirusTotalScanMode.ASK -> Icons.Outlined.HelpOutline
+                            VirusTotalScanMode.ALWAYS -> Icons.Outlined.CheckCircle
+                        },
+                        title = mode.title,
+                        description = mode.description,
+                        selected = settings.virusTotalScanMode == mode,
+                        onClick = {
+                            onSettingsChange(settings.copy(virusTotalScanMode = mode))
+                        }
+                    )
+                }
+                SettingTextFieldRow(
+                    icon = Icons.Outlined.Key,
+                    title = "API key",
+                    description = "Get your free key at virustotal.com",
+                    value = settings.virusTotalApiKey,
+                    onValueChange = {
+                        onSettingsChange(settings.copy(virusTotalApiKey = it))
+                    }
+                )
+            }
+        }
+
         SettingsGroupCard("Appearance") {
             ThemeMode.entries.forEach { mode ->
                 SettingsOptionCard(
@@ -3096,6 +3203,67 @@ private fun SettingSwitchRow(
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingTextFieldRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = shape,
+        color = sourceCardFill(),
+        border = BorderStroke(1.dp, sourceCardBorder())
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface
+                    )
+                    Text(
+                        description,
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = colors.onSurface
+                ),
+                placeholder = {
+                    Text("Enter API key", color = colors.onSurfaceVariant.copy(alpha = 0.5f))
+                }
             )
         }
     }
@@ -5480,6 +5648,88 @@ private fun DownloadingState(state: UiState.Downloading, onCancel: () -> Unit) {
     }
 }
 
+@Composable
+private fun ScanResultCard(
+    candidate: DownloadCandidate,
+    scanResult: VirusTotalScanner.ScanResult,
+    detail: String,
+    isMalicious: Boolean,
+    onProceed: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val containerColor = if (isMalicious) {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
+    } else if (scanResult is VirusTotalScanner.ScanResult.Clean) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val borderColor = if (isMalicious) {
+        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+    } else if (scanResult is VirusTotalScanner.ScanResult.Clean) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+    } else {
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(HelperDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = if (isMalicious) Icons.Outlined.Warning else Icons.Outlined.CheckCircle,
+                    contentDescription = null,
+                    tint = if (isMalicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = if (isMalicious) "VirusTotal — Threats detected" else "VirusTotal — Clean",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (isMalicious) {
+                Text(
+                    text = "This file was flagged by antivirus engines. " +
+                        "Only proceed if you trust the source.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HelperButton(
+                    text = "Proceed",
+                    onClick = onProceed,
+                    modifier = Modifier.weight(1f)
+                )
+                HelperOutlinedButton(
+                    text = "Cancel",
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
 private fun formatTransferSpeed(bytesPerSec: Double): String {
     if (bytesPerSec <= 0.0) return ""
     val mb = bytesPerSec / (1024.0 * 1024.0)
@@ -6114,6 +6364,12 @@ private sealed interface UiState {
     ) : UiState
     data class Error(val message: String) : UiState
     data class FastMode(val progress: FastModeProgress) : UiState
+    data class ScanResult(
+        val candidate: DownloadCandidate,
+        val scanResult: VirusTotalScanner.ScanResult,
+        val detail: String,
+        val isMalicious: Boolean
+    ) : UiState
 }
 
 private enum class FastModeChoice { USE, NEXT }
