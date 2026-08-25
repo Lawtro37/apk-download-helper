@@ -1261,6 +1261,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            is DownloadJobManager.Event.ScanAsk -> {
+                uiState = UiState.ScanAsk(event.candidate)
+            }
             is DownloadJobManager.Event.ScanComplete -> {
                 val scanResult = event.result
                 val isMalicious = scanResult is VirusTotalScanner.ScanResult.Malicious
@@ -2415,6 +2418,13 @@ private fun HelperScreen(
 
                 is UiState.CheckingPickedFile -> item { CheckingPickedFileState(state) }
                 is UiState.Downloading -> item { DownloadingState(state, onCancelDownload) }
+                is UiState.ScanAsk -> item {
+                    ScanAskCard(
+                        candidate = state.candidate,
+                        onScan = onProceedAfterScan,
+                        onSkip = onCancelAfterScan
+                    )
+                }
                 is UiState.ScanResult -> item {
                     ScanResultCard(
                         candidate = state.candidate,
@@ -5649,6 +5659,62 @@ private fun DownloadingState(state: UiState.Downloading, onCancel: () -> Unit) {
 }
 
 @Composable
+private fun ScanAskCard(
+    candidate: DownloadCandidate,
+    onScan: () -> Unit,
+    onSkip: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+    ) {
+        Column(
+            modifier = Modifier.padding(HelperDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Shield,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Scan with VirusTotal?",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = "Check ${candidate.name} with VirusTotal before returning it to Morphe.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HelperButton(
+                    text = "Scan",
+                    onClick = onScan,
+                    modifier = Modifier.weight(1f)
+                )
+                HelperOutlinedButton(
+                    text = "Skip",
+                    onClick = onSkip,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ScanResultCard(
     candidate: DownloadCandidate,
     scanResult: VirusTotalScanner.ScanResult,
@@ -5657,6 +5723,7 @@ private fun ScanResultCard(
     onProceed: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val isError = scanResult is VirusTotalScanner.ScanResult.Error
     val containerColor = if (isMalicious) {
         MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
     } else if (scanResult is VirusTotalScanner.ScanResult.Clean) {
@@ -5687,13 +5754,23 @@ private fun ScanResultCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = if (isMalicious) Icons.Outlined.Warning else Icons.Outlined.CheckCircle,
+                    imageVector = when {
+                        isMalicious || isError -> Icons.Outlined.Warning
+                        else -> Icons.Outlined.CheckCircle
+                    },
                     contentDescription = null,
-                    tint = if (isMalicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    tint = when {
+                        isMalicious || isError -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.primary
+                    },
                     modifier = Modifier.size(20.dp)
                 )
                 Text(
-                    text = if (isMalicious) "VirusTotal — Threats detected" else "VirusTotal — Clean",
+                    text = when {
+                        isMalicious -> "VirusTotal — Threats detected"
+                        isError -> "VirusTotal — Scan error"
+                        else -> "VirusTotal — Clean"
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -5707,6 +5784,13 @@ private fun ScanResultCard(
                 Text(
                     text = "This file was flagged by antivirus engines. " +
                         "Only proceed if you trust the source.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else if (isError) {
+                Text(
+                    text = "The scan did not complete (network or VirusTotal queue). " +
+                        "You can still proceed, or cancel to keep the file out of Morphe.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -6370,6 +6454,7 @@ private sealed interface UiState {
         val detail: String,
         val isMalicious: Boolean
     ) : UiState
+    data class ScanAsk(val candidate: DownloadCandidate) : UiState
 }
 
 private enum class FastModeChoice { USE, NEXT }
