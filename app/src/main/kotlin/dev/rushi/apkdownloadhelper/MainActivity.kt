@@ -5367,6 +5367,12 @@ private fun InfoCard(text: String) {
     }
 }
 
+private enum class HistoryFilter(val label: String) {
+    All("All"),
+    Scanned("Scanned"),
+    Flagged("Flagged")
+}
+
 @Composable
 private fun DownloadHistorySection(
     entries: List<DownloadHistoryEntry>,
@@ -5375,6 +5381,14 @@ private fun DownloadHistorySection(
     onShare: (DownloadHistoryEntry) -> Unit
 ) {
     val context = LocalContext.current
+    var filter by rememberSaveable { mutableStateOf(HistoryFilter.All) }
+    val filtered = entries.filter { entry ->
+        when (filter) {
+            HistoryFilter.All -> true
+            HistoryFilter.Scanned -> entry.scanVerdict != null
+            HistoryFilter.Flagged -> entry.scanVerdict?.malicious == true
+        }
+    }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
@@ -5397,10 +5411,66 @@ private fun DownloadHistorySection(
             )
         }
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            HistoryFilter.entries.forEach { f ->
+                val count = when (f) {
+                    HistoryFilter.All -> entries.size
+                    HistoryFilter.Scanned -> entries.count { it.scanVerdict != null }
+                    HistoryFilter.Flagged -> entries.count { it.scanVerdict?.malicious == true }
+                }
+                val selected = f == filter
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(50))
+                        .clickable { filter = f },
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                    } else {
+                        sourceCardFill()
+                    },
+                    border = BorderStroke(
+                        width = if (selected) 1.5.dp else 1.dp,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            sourceCardBorder()
+                        }
+                    )
+                ) {
+                    Text(
+                        text = "${f.label} · $count",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 9.dp)
+                    )
+                }
+            }
+        }
+
         if (entries.isEmpty()) {
             InfoCard("No hand-offs recorded yet. Downloads and picked files you return to Morphe show up here.")
+        } else if (filtered.isEmpty()) {
+            InfoCard(
+                when (filter) {
+                    HistoryFilter.All -> "No hand-offs recorded yet."
+                    HistoryFilter.Scanned -> "None of these downloads were scanned by VirusTotal."
+                    HistoryFilter.Flagged -> "No flagged downloads — everything came back clean."
+                }
+            )
         } else {
-            entries.forEach { entry ->
+            filtered.forEach { entry ->
                 val usable = remember(entry.uri) { context.isHistoryUriUsable(entry.uri) }
                 HistoryEntryCard(
                     entry = entry,
