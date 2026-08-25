@@ -504,6 +504,13 @@ internal class DownloadService : Service() {
             DownloadJobManager.emit(
                 DownloadJobManager.Event.Scanning(candidate, status)
             )
+            // Keep the progress notification in sync with the card: without
+            // this it stays on the last download text ("100% · …") for the
+            // whole scan, which can be a minute+ for a bundle.
+            notifySafe(
+                NOTIFICATION_ID_PROGRESS,
+                buildProgressNotification(candidate, 100, status)
+            )
         }
 
         DownloadJobManager.emit(
