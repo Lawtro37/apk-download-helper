@@ -36,7 +36,9 @@ internal data class HelperSettings(
     val adGuardDns: Boolean = false,
     val virusTotalEnabled: Boolean = false,
     val virusTotalApiKey: String = "",
-    val virusTotalScanMode: VirusTotalScanMode = VirusTotalScanMode.ASK
+    val virusTotalScanMode: VirusTotalScanMode = VirusTotalScanMode.ASK,
+    // Source opened by default when Helper launches (null = first enabled source).
+    val preferredSource: DownloadSource? = null
 )
 
 internal enum class VirusTotalScanMode(
@@ -162,7 +164,9 @@ internal fun Context.loadHelperSettings(): HelperSettings {
         virusTotalScanMode = enumValueOrDefault(
             prefs.getString("virus_total_scan_mode", null),
             VirusTotalScanMode.ASK
-        )
+        ),
+        preferredSource = prefs.getString("preferred_source", null)
+            ?.let { name -> DownloadSource.entries.firstOrNull { it.name == name } }
     )
     logcatLoggingEnabled = settings.logcatLogging
     adGuardDnsEnabled = settings.adGuardDns
@@ -186,6 +190,7 @@ internal fun Context.saveHelperSettings(settings: HelperSettings) {
         .putBoolean("virus_total_enabled", settings.virusTotalEnabled)
         .putString("virus_total_api_key", settings.virusTotalApiKey)
         .putString("virus_total_scan_mode", settings.virusTotalScanMode.name)
+        .putString("preferred_source", settings.preferredSource?.name)
         .apply()
 }
 

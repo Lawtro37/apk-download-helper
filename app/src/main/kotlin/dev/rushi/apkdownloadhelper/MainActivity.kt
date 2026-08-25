@@ -681,10 +681,17 @@ class MainActivity : ComponentActivity() {
 
     private fun initialCandidateResult(request: HelperRequest): CandidateResult {
         val manual = manualCandidates(request)
+        val enabled = DownloadSource.entries
+            .filter { it !in helperSettings.disabledSources }
+        // Put the user's preferred source first so the picker's pager opens on
+        // it (page 0) instead of always the first enabled source. Falls back to
+        // the default order when no preference is set or it's disabled.
+        val ordered = helperSettings.preferredSource
+            ?.takeIf { it in enabled }
+            ?.let { preferred -> listOf(preferred) + enabled.filterNot { it == preferred } }
+            ?: enabled
         return CandidateResult(
-            sourceGroups = DownloadSource.entries
-                .filter { it !in helperSettings.disabledSources }
-                .map { source ->
+            sourceGroups = ordered.map { source ->
                 SourceCandidateGroup(
                     source = source,
                     manual = manual.filter { it.source == source },
@@ -3069,6 +3076,37 @@ private fun HelperSettingsCard(
         }
 
         SettingsGroupCard("Sources") {
+            // Preferred source: which page the picker opens on by default.
+            SettingsOptionCard(
+                icon = Icons.Outlined.Star,
+                title = "Default source",
+                description = if (settings.preferredSource == null) {
+                    "Automatic — Helper opens on the first enabled source."
+                } else {
+                    "Helper opens on ${settings.preferredSource.label}."
+                },
+                selected = settings.preferredSource == null,
+                onClick = {
+                    onSettingsChange(settings.copy(preferredSource = null))
+                }
+            )
+            DownloadSource.entries.forEach { source ->
+                val dis = source in settings.disabledSources
+                SettingsOptionCard(
+                    icon = Icons.Outlined.Star,
+                    title = source.label,
+                    description = if (dis) {
+                        "Disabled — not available to select as default."
+                    } else {
+                        "Open on ${source.label} each launch."
+                    },
+                    selected = settings.preferredSource == source,
+                    enabled = !dis,
+                    onClick = {
+                        if (!dis) onSettingsChange(settings.copy(preferredSource = source))
+                    }
+                )
+            }
             DownloadSource.entries.forEach { source ->
                 SourceToggleRow(
                     source = source,
@@ -3155,7 +3193,8 @@ private fun SettingsOptionCard(
     title: String,
     description: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
@@ -3163,7 +3202,7 @@ private fun SettingsOptionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         shape = shape,
         // Matches the home screen's source cards: dark fill + hairline border,
         // with the selected option getting a primary tint + border + radio dot.
