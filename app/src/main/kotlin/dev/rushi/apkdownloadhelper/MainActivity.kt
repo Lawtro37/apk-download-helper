@@ -2371,6 +2371,13 @@ private fun HelperScreen(
                 }
             }
 
+            item {
+                // At-a-glance VirusTotal quota right under the header (next to
+                // the Fast Mode toggle area) so usage is visible without opening
+                // Settings. Hidden when no API key is configured.
+                HomeQuotaCard(apiKey = settings.virusTotalApiKey)
+            }
+
             if (request == null) {
                 item { EmptyLaunchState(onOpenMorphe) }
                 return@LazyColumn
@@ -3389,6 +3396,111 @@ private fun SettingTextFieldRow(
                     Text("Enter API key", color = colors.onSurfaceVariant.copy(alpha = 0.5f))
                 }
             )
+        }
+    }
+}
+
+/**
+ * Compact at-a-glance quota card for the home screen header area. Shows the
+ * daily bucket (the one most likely to run out) with a warning tint as it
+ * fills, plus the hourly number. Returns nothing when no API key is set.
+ */
+@Composable
+private fun HomeQuotaCard(apiKey: String) {
+    if (apiKey.isBlank()) return
+    val colors = MaterialTheme.colorScheme
+    var quota by remember { mutableStateOf<VirusTotalScanner.QuotaUsage?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val load: () -> Unit = {
+        scope.launch {
+            failed = false
+            quota = withContext(Dispatchers.IO) { VirusTotalScanner.fetchQuotaUsage(apiKey) }
+            if (quota == null) failed = true
+        }
+    }
+    LaunchedEffect(apiKey) { load() }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
+        color = sourceCardFill(),
+        border = BorderStroke(1.dp, sourceCardBorder())
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.NetworkCheck,
+                    contentDescription = null,
+                    tint = colors.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "VirusTotal quota",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                val current = quota
+                if (current == null && !failed) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = "Refresh quota",
+                        tint = colors.primary,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable { load() }
+                            .padding(2.dp)
+                    )
+                }
+            }
+            val current = quota
+            when {
+                current != null -> {
+                    val ratio = current.dailyUsed.toFloat() / current.dailyAllowed
+                    val barColor = when {
+                        ratio >= 0.9f -> colors.error
+                        ratio >= 0.7f -> Color(0xFFE0A030)
+                        else -> colors.primary
+                    }
+                    LinearProgressIndicator(
+                        progress = { ratio.coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = barColor,
+                        trackColor = colors.surfaceVariant
+                    )
+                    Text(
+                        text = "${current.dailyUsed} of ${current.dailyAllowed} today · " +
+                            "${current.hourlyUsed}/${current.hourlyAllowed} hourly",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant
+                    )
+                }
+                failed -> Text(
+                    text = "VirusTotal quota unavailable — check your API key in Settings.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.error
+                )
+            }
         }
     }
 }
