@@ -2634,6 +2634,38 @@ private fun HistoryEntryCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            entry.scanVerdict?.let { verdict ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = when {
+                            verdict.malicious -> Icons.Outlined.Warning
+                            verdict.failed -> Icons.Outlined.HelpOutline
+                            else -> Icons.Outlined.CheckCircle
+                        },
+                        contentDescription = null,
+                        tint = when {
+                            verdict.malicious -> MaterialTheme.colorScheme.error
+                            verdict.failed -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = verdict.label,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when {
+                            verdict.malicious -> MaterialTheme.colorScheme.error
+                            verdict.failed -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
             if (usable) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

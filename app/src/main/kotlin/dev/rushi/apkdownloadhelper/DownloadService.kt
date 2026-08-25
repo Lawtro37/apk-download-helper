@@ -214,6 +214,9 @@ internal object DownloadJobManager {
 internal class DownloadService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var downloadJob: Job? = null
+    // Verdict of the last scan, carried from scanAndHandoff into handleSuccess
+    // so the hand-off gets recorded with its VirusTotal outcome.
+    private var lastScanVerdict: ScanVerdict? = null
     private var lastPostedPercent = -1
     private var lastPostedTime = 0L
     private var lastProgressBytes = 0L
@@ -343,6 +346,7 @@ internal class DownloadService : Service() {
 
     private fun startDownload(job: DownloadJobManager.DownloadJob) {
         val candidate = job.candidate
+        lastScanVerdict = null
         lastPostedPercent = -1
         lastPostedTime = 0L
         lastProgressBytes = 0L
@@ -471,7 +475,8 @@ internal class DownloadService : Service() {
             callerPackage = request.callerPackage
         )
         DownloadJobManager.persistPendingResult(result, applicationContext)
-        recordHandOff(request, candidate, file, uri)
+        recordHandOff(request, candidate, file, uri, lastScanVerdict)
+        lastScanVerdict = null
 
         if (
             settings.downloadLocation == DownloadLocation.DOWNLOADS ||
@@ -509,6 +514,33 @@ internal class DownloadService : Service() {
         // cancel. "Always scan" means the scan runs without asking, not that
         // the result is skipped — the user must see it before the file leaves
         // the app.
+        lastScanVerdict = when (scanResult) {
+            is VirusTotalScanner.ScanResult.Clean -> ScanVerdict(
+                label = if (scanResult.scannedFiles != null) {
+                    "Clean · 0/${scanResult.totalEngines} engines · ${scanResult.scannedFiles} APKs"
+                } else {
+                    "Clean · 0/${scanResult.totalEngines} engines"
+                },
+                malicious = false,
+                sha256 = scanResult.sha256,
+                scannedFiles = scanResult.scannedFiles
+            )
+            is VirusTotalScanner.ScanResult.Malicious -> ScanVerdict(
+                label = if (scanResult.scannedFiles != null) {
+                    "Malicious · ${scanResult.detections}/${scanResult.totalEngines} engines · ${scanResult.fileName}"
+                } else {
+                    "Malicious · ${scanResult.detections}/${scanResult.totalEngines} engines"
+                },
+                malicious = true,
+                sha256 = scanResult.sha256,
+                scannedFiles = scanResult.scannedFiles
+            )
+            is VirusTotalScanner.ScanResult.Error -> ScanVerdict(
+                label = "Scan failed · ${scanResult.message.take(48)}",
+                malicious = false,
+                failed = true
+            )
+        }
         DownloadJobManager.setPendingScan(DownloadJobManager.PendingScan.Decided(file))
         notifySafe(
             NOTIFICATION_ID_PROGRESS,

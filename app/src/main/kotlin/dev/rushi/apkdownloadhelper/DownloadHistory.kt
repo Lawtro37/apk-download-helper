@@ -7,6 +7,15 @@ import com.google.gson.reflect.TypeToken
 import java.io.File
 import java.lang.reflect.Type
 
+/** Outcome of the VirusTotal scan that ran before a hand-off, if any. */
+internal data class ScanVerdict(
+    val label: String,
+    val malicious: Boolean = false,
+    val failed: Boolean = false,
+    val sha256: String? = null,
+    val scannedFiles: Int? = null
+)
+
 internal data class DownloadHistoryEntry(
     val timestamp: Long,
     val appName: String,
@@ -15,7 +24,8 @@ internal data class DownloadHistoryEntry(
     val sourceName: String,
     val fileName: String,
     val fileKind: String,
-    val uri: String
+    val uri: String,
+    val scanVerdict: ScanVerdict? = null
 )
 
 internal object DownloadHistoryStore {
@@ -51,7 +61,8 @@ internal fun Context.recordHandOff(
     request: HelperRequest,
     candidate: DownloadCandidate,
     file: File,
-    uri: Uri
+    uri: Uri,
+    scanVerdict: ScanVerdict? = null
 ) {
     DownloadHistoryStore.add(
         this,
@@ -63,7 +74,8 @@ internal fun Context.recordHandOff(
             sourceName = candidate.source.label,
             fileName = file.name,
             fileKind = candidate.fileKind,
-            uri = uri.toString()
+            uri = uri.toString(),
+            scanVerdict = scanVerdict
         )
     )
 }
