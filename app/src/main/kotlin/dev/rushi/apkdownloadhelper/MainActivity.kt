@@ -302,6 +302,7 @@ class MainActivity : ComponentActivity() {
     // Set when a repeat request matches previous downloads that still exist;
     // the user picks one to reuse or chooses to download a fresh copy.
     private var reuseOffer by mutableStateOf<List<ReuseOption>?>(null)
+    private var selectedPagerPage by mutableIntStateOf(0)
     private var fastModeActive = false
     private var fastModeQueue: MutableList<DownloadSource>? = null
     private var fastModeDecision: CompletableDeferred<FastModeChoice?>? = null
@@ -351,6 +352,8 @@ class MainActivity : ComponentActivity() {
                         settings = helperSettings,
                         logs = AppLog.entries,
                         installedPackageRefreshToken = installedPackageRefreshToken,
+                        selectedPagerPage = selectedPagerPage,
+                        onPagerPageChanged = { selectedPagerPage = it },
                         onSettingsChange = ::updateHelperSettings,
                         onRefresh = ::loadCandidates,
                         onResolve = ::resolveCandidates,
@@ -2137,6 +2140,8 @@ private fun HelperScreen(
     settings: HelperSettings,
     logs: List<RequestLogEntry>,
     installedPackageRefreshToken: Int,
+    selectedPagerPage: Int,
+    onPagerPageChanged: (Int) -> Unit,
     onSettingsChange: (HelperSettings) -> Unit,
     onRefresh: () -> Unit,
     onResolve: (DownloadSource, CandidateOption) -> Unit,
@@ -2315,6 +2320,8 @@ private fun HelperScreen(
                         SourcePickerFlow(
                             request = request,
                             result = state.result,
+                            selectedPagerPage = selectedPagerPage,
+                            onPagerPageChanged = onPagerPageChanged,
                             onResolve = onResolve,
                             onDownload = onDownload,
                             onPickDownloadedFile = openDownloadedFilePicker,
@@ -2350,6 +2357,8 @@ private fun HelperScreen(
                             SourcePickerFlow(
                                 request = request,
                                 result = result,
+                                selectedPagerPage = selectedPagerPage,
+                                onPagerPageChanged = onPagerPageChanged,
                                 onResolve = onResolve,
                                 onDownload = onDownload,
                                 onPickDownloadedFile = openDownloadedFilePicker,
@@ -3788,6 +3797,8 @@ private data class PrimaryAction(
 private fun SourcePickerFlow(
     request: HelperRequest,
     result: CandidateResult,
+    selectedPagerPage: Int,
+    onPagerPageChanged: (Int) -> Unit,
     onResolve: (DownloadSource, CandidateOption) -> Unit,
     onDownload: (DownloadCandidate) -> Unit,
     onPickDownloadedFile: (DownloadCandidate) -> Unit,
@@ -3817,7 +3828,9 @@ private fun SourcePickerFlow(
         return
     }
 
-    val pagerState = rememberPagerState(initialPage = 0) { groups.size }
+    val initialPage = selectedPagerPage.coerceIn(0, (groups.size - 1).coerceAtLeast(0))
+    val pagerState = rememberPagerState(initialPage = initialPage) { groups.size }
+    LaunchedEffect(pagerState.currentPage) { onPagerPageChanged(pagerState.currentPage) }
     val scope = rememberCoroutineScope()
     var showHowItWorks by remember { mutableStateOf(false) }
     // The source cards collapse by default so the page stays focused on the
