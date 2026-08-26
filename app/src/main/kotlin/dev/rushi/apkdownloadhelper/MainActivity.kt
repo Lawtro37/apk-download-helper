@@ -66,7 +66,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Dns
@@ -109,6 +112,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -2937,6 +2942,7 @@ private fun HelperSettingsCard(
 ) {
     val context = LocalContext.current
     var cacheBytes by remember(context) { mutableStateOf(context.temporaryDownloadsSize()) }
+    var defaultSourceExpanded by remember { mutableStateOf(false) }
     var downloadsBytes by remember(context) { mutableStateOf(context.downloadsCopySize()) }
 
     Column(
@@ -3104,36 +3110,67 @@ private fun HelperSettingsCard(
         }
 
         SettingsGroupCard("Sources") {
-            // Preferred source: which page the picker opens on by default.
-            SettingsOptionCard(
-                icon = Icons.Outlined.Star,
-                title = "Default source",
-                description = if (settings.preferredSource == null) {
-                    "Automatic — Helper opens on the first enabled source."
-                } else {
-                    "Helper opens on ${settings.preferredSource.label}."
-                },
-                selected = settings.preferredSource == null,
-                onClick = {
-                    onSettingsChange(settings.copy(preferredSource = null))
-                }
-            )
-            DownloadSource.entries.forEach { source ->
-                val dis = source in settings.disabledSources
-                SettingsOptionCard(
+            // Preferred source: one compact row + dropdown instead of a long
+            // radio list, so choosing the default doesn't dominate the screen.
+            Box {
+                SettingsDropdownCard(
                     icon = Icons.Outlined.Star,
-                    title = source.label,
-                    description = if (dis) {
-                        "Disabled — not available to select as default."
-                    } else {
-                        "Open on ${source.label} each launch."
-                    },
-                    selected = settings.preferredSource == source,
-                    enabled = !dis,
-                    onClick = {
-                        if (!dis) onSettingsChange(settings.copy(preferredSource = source))
-                    }
+                    title = "Default source",
+                    value = settings.preferredSource?.label
+                        ?: "Automatic (first enabled source)",
+                    onClick = { defaultSourceExpanded = true }
                 )
+                DropdownMenu(
+                    expanded = defaultSourceExpanded,
+                    onDismissRequest = { defaultSourceExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Automatic (first enabled source)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = null
+                            )
+                        },
+                        trailingIcon = {
+                            if (settings.preferredSource == null) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Check,
+                                    contentDescription = null
+                                )
+                            }
+                        },
+                        onClick = {
+                            onSettingsChange(settings.copy(preferredSource = null))
+                            defaultSourceExpanded = false
+                        }
+                    )
+                    DownloadSource.entries
+                        .filter { it !in settings.disabledSources }
+                        .forEach { source ->
+                            DropdownMenuItem(
+                                text = { Text(source.label) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Star,
+                                        contentDescription = null
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (settings.preferredSource == source) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Check,
+                                            contentDescription = null
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    onSettingsChange(settings.copy(preferredSource = source))
+                                    defaultSourceExpanded = false
+                                }
+                            )
+                        }
+                }
             }
             DownloadSource.entries.forEach { source ->
                 SourceToggleRow(
@@ -3282,6 +3319,67 @@ private fun SettingsOptionCard(
                 )
             }
             RadioDot(selected = selected)
+        }
+    }
+}
+
+/**
+ * Compact dropdown trigger in the same card language as [SettingsOptionCard],
+ * but showing the current value on the right and a chevron instead of a radio
+ * dot. Tap opens the anchored [DropdownMenu].
+ */
+@Composable
+private fun SettingsDropdownCard(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = sourceCardFill(),
+        contentColor = colors.onSurface,
+        border = BorderStroke(1.dp, sourceCardBorder())
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant,
+                modifier = Modifier.size(22.dp)
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    title,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface
+                )
+                Text(
+                    value,
+                    color = colors.primary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Icon(
+                imageVector = Icons.Outlined.ArrowDropDown,
+                contentDescription = "Change default source",
+                tint = colors.onSurfaceVariant
+            )
         }
     }
 }
