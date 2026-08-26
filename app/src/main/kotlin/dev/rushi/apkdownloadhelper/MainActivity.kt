@@ -3694,11 +3694,6 @@ private fun VirusTotalQuotaCard(apiKey: String) {
                         fontWeight = FontWeight.Bold,
                         color = colors.onSurface
                     )
-                    Text(
-                        "Free tier: 4/min · 240/hour · 500/day · 15,500/month",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
                 if (loading) {
                     CircularProgressIndicator(
