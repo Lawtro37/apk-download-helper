@@ -325,6 +325,22 @@ class MainActivity : ComponentActivity() {
     private var fastModeActive = false
     private var fastModeQueue: MutableList<DownloadSource>? = null
     private var fastModeDecision: CompletableDeferred<FastModeChoice?>? = null
+
+    /**
+     * The effective disabled-source set.  If the user disables *every*
+     * source, Play Store is forced back on so the app always has at least
+     * one fallback source available.
+     */
+    private val effectiveDisabledSources: Set<DownloadSource>
+        get() {
+            val disabled = helperSettings.disabledSources
+            return if (disabled.size >= DownloadSource.entries.size) {
+                // All sources disabled – keep Play Store as the sole fallback.
+                disabled - DownloadSource.PLAY
+            } else {
+                disabled
+            }
+        }
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> startPendingDownload() }
@@ -464,7 +480,7 @@ class MainActivity : ComponentActivity() {
         uiState = UiState.Ready(initialCandidateResult(activeRequest))
         appendLog(
             "Ready. Manual links prepared for " +
-                "${DownloadSource.entries.count { it !in helperSettings.disabledSources }} sources."
+                "${DownloadSource.entries.count { it !in effectiveDisabledSources }} sources."
         )
     }
 
@@ -700,7 +716,7 @@ class MainActivity : ComponentActivity() {
     private fun initialCandidateResult(request: HelperRequest): CandidateResult {
         val manual = manualCandidates(request)
         val enabled = DownloadSource.entries
-            .filter { it !in helperSettings.disabledSources }
+            .filter { it !in effectiveDisabledSources }
         // Put the user's preferred source first so the picker's pager opens on
         // it (page 0) instead of always the first enabled source. Falls back to
         // the default order when no preference is set or it's disabled.
@@ -896,7 +912,7 @@ class MainActivity : ComponentActivity() {
 
     private fun manualSourceUrls(request: HelperRequest): List<Pair<DownloadSource, String>> =
         parsers.values
-            .filter { it.source !in helperSettings.disabledSources }
+            .filter { it.source !in effectiveDisabledSources }
             .mapNotNull { parser ->
                 parser.searchUrl(request.packageName)?.let { parser.source to it }
             }
@@ -1062,7 +1078,7 @@ class MainActivity : ComponentActivity() {
         fastModeActive = true
         fastModeQueue = DownloadSource.entries
             .filter { it !in NON_FAST_MODE_SOURCES }
-            .filter { it !in helperSettings.disabledSources }
+            .filter { it !in effectiveDisabledSources }
             .toMutableList()
         appendLog("Fast Mode: auto-searching sources for the exact requested version.", LogLevel.Info)
         uiState = UiState.FastMode(FastModeProgress(detail = "Auto-searching sources…"))
@@ -3158,7 +3174,11 @@ private fun HelperSettingsCard(
                         }
                     )
                     DownloadSource.entries
-                        .filter { it !in settings.disabledSources }
+                        .filter {
+                            val disabled = settings.disabledSources
+                            it !in disabled ||
+                                (disabled.size >= DownloadSource.entries.size && it == DownloadSource.PLAY)
+                        }
                         .forEach { source ->
                             DropdownMenuItem(
                                 text = { Text(source.label) },
