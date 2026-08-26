@@ -6183,8 +6183,11 @@ private fun FastModeCard(
 
 // Splits a scan status into a bold phase label + muted detail so the card
 // distinguishes e.g. "Scanning APK 2 of 4" from "split_1.apk · Waiting 16s…".
+// Match the pause anywhere in the status: the bundle scanner prefixes inner
+// APK statuses with "APK 2 of 4 (split_1.apk): …", so a plain prefix check
+// would never see the "Waiting Ns for rate limit…" inside.
 private fun isRateLimitWait(status: String): Boolean =
-    status.startsWith("Waiting", ignoreCase = true) &&
+    status.contains("waiting", ignoreCase = true) &&
         status.contains("rate limit", ignoreCase = true)
 
 /**
