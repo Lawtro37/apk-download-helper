@@ -716,12 +716,41 @@ internal object VirusTotalScanner {
                 response = client.newCall(request).execute()
             }
         }
-        val body = response.body?.string() ?: return null
+        var body = response.body?.string() ?: return null
         if (response.code == 404) return null
         if (!response.isSuccessful) {
             throw Exception("Report lookup failed (${response.code}): $body")
         }
-        return gson.fromJson(body, FileReportResponse::class.java)
+        // A 2xx with a non-JSON body (e.g. an HTML block page or a plain-text
+        // proxy response) is a transient upstream blip, not a real verdict. Gson
+        // would throw "Expected BEGIN_OBJECT but was STRING" and fail the whole
+        // scan for a single bad response — so retry a couple of times before
+        // giving up on this file.
+        for (attempt in 1..3) {
+            if (isJsonObject(body)) {
+                return gson.fromJson(body, FileReportResponse::class.java)
+            }
+            Log.w(TAG, "Report lookup returned non-JSON 2xx body on attempt $attempt; retrying")
+            if (checkCancelled()) throw CancellationException("Scan cancelled")
+            Thread.sleep(1500L * attempt)
+            response = client.newCall(request).execute()
+            body = response.body?.string() ?: return null
+            if (response.code == 404) return null
+            if (!response.isSuccessful) {
+                throw Exception("Report lookup failed (${response.code}): $body")
+            }
+        }
+        if (isJsonObject(body)) {
+            return gson.fromJson(body, FileReportResponse::class.java)
+        }
+        throw Exception("Report lookup kept returning a non-JSON body")
+    }
+
+    /** True when [s] starts with a JSON object token, so we never feed Gson a
+     *  plain string / HTML body and hit "Expected BEGIN_OBJECT but was STRING". */
+    private fun isJsonObject(s: String?): Boolean {
+        val t = s?.trimStart() ?: return false
+        return t.startsWith("{")
     }
 
     private fun uploadFile(
@@ -779,6 +808,9 @@ internal object VirusTotalScanner {
             }
             throw Exception(message)
         }
+        if (!isJsonObject(body)) {
+            throw Exception("Upload returned a non-JSON body: ${body.take(80)}")
+        }
 
         val uploadResponse = gson.fromJson(body, UploadResponse::class.java)
         return uploadResponse.data?.id ?: throw Exception("No analysis ID in response")
@@ -805,6 +837,9 @@ internal object VirusTotalScanner {
         if (!urlResponse.isSuccessful) {
             throw Exception("Getting upload URL failed (${urlResponse.code}): $urlBody")
         }
+        if (!isJsonObject(urlBody)) {
+            throw Exception("Upload URL response was not JSON: ${urlBody.take(80)}")
+        }
         val uploadUrl = gson.fromJson(urlBody, UploadUrlResponse::class.java).data
             ?: throw Exception("No upload URL in response")
 
@@ -827,6 +862,9 @@ internal object VirusTotalScanner {
         if (!response.isSuccessful) {
             val error = gson.fromJson(body, ErrorResponse::class.java)
             throw Exception(error.error?.message ?: "Upload via URL failed (${response.code})")
+        }
+        if (!isJsonObject(body)) {
+            throw Exception("Upload via URL returned a non-JSON body: ${body.take(80)}")
         }
         val uploadResponse = gson.fromJson(body, UploadResponse::class.java)
         return uploadResponse.data?.id ?: throw Exception("No analysis ID in response")
@@ -871,6 +909,9 @@ internal object VirusTotalScanner {
 
             if (!response.isSuccessful) {
                 throw Exception("Analysis poll failed (${response.code}): $body")
+            }
+            if (!isJsonObject(body)) {
+                throw Exception("Analysis poll returned a non-JSON body: ${body.take(80)}")
             }
 
             val analysis = gson.fromJson(body, AnalysisResponse::class.java)
