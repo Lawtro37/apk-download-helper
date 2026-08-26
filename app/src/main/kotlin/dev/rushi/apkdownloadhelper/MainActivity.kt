@@ -3529,6 +3529,7 @@ private fun VirusTotalQuotaCard(apiKey: String) {
     var loading by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var minuteUsed by remember { mutableIntStateOf(0) }
+    var rollingUsed by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val load: () -> Unit = {
         scope.launch {
@@ -3545,6 +3546,7 @@ private fun VirusTotalQuotaCard(apiKey: String) {
         // it once a second to keep the bar honest while a scan is running.
         while (true) {
             minuteUsed = VirusTotalScanner.rateLimiter.callsInCurrentMinute()
+            rollingUsed = VirusTotalScanner.rateLimiter.callsInLastMinute()
             delay(1000)
         }
     }
@@ -3602,12 +3604,15 @@ private fun VirusTotalQuotaCard(apiKey: String) {
                 }
             }
             // Per minute is always available locally, even while the API quota
-            // is still loading. It flashes amber as it nears the 4/min cap.
+            // is still loading. The wall-clock minute count resets at each
+            // minute boundary; the rolling 60s count is what the API actually
+            // enforces, so show both and flash when either nears the cap.
             QuotaBar(
                 "Per minute",
                 minuteUsed,
                 VirusTotalScanner.MINUTE_LOOKUP_LIMIT,
-                flash = minuteUsed >= VirusTotalScanner.MINUTE_LOOKUP_LIMIT - 1
+                flash = maxOf(minuteUsed, rollingUsed) >= VirusTotalScanner.MINUTE_LOOKUP_LIMIT - 1,
+                caption = "rolling 60s: $rollingUsed / ${VirusTotalScanner.MINUTE_LOOKUP_LIMIT} · real limit"
             )
             val current = quota
             when {
@@ -3632,7 +3637,10 @@ private fun QuotaBar(
     used: Int,
     allowed: Int,
     // Pulsing amber flash used for the per-minute bar when it nears the cap.
-    flash: Boolean = false
+    flash: Boolean = false,
+    // Optional second line under the bar, e.g. the rolling 60s count next to
+    // the wall-clock minute count.
+    caption: String? = null
 ) {
     val colors = MaterialTheme.colorScheme
     val ratio = if (allowed > 0) used.toFloat() / allowed else 0f
@@ -3687,6 +3695,13 @@ private fun QuotaBar(
             color = barColor,
             trackColor = colors.surfaceVariant
         )
+        if (caption != null) {
+            Text(
+                text = caption,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant
+            )
+        }
     }
 }
 
