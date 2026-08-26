@@ -3683,7 +3683,7 @@ private fun VirusTotalQuotaCard(apiKey: String) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.NetworkCheck,
+                    imageVector = Icons.Outlined.Shield,
                     contentDescription = null,
                     tint = colors.onSurfaceVariant,
                     modifier = Modifier.size(22.dp)
