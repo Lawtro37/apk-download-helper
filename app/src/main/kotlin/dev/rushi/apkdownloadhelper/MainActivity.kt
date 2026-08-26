@@ -3544,7 +3544,7 @@ private fun VirusTotalQuotaCard(apiKey: String) {
         // The per-minute count is tracked locally in the rate limiter, so tick
         // it once a second to keep the bar honest while a scan is running.
         while (true) {
-            minuteUsed = VirusTotalScanner.rateLimiter.callsInLastMinute()
+            minuteUsed = VirusTotalScanner.rateLimiter.callsInCurrentMinute()
             delay(1000)
         }
     }

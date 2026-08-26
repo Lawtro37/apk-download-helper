@@ -116,6 +116,24 @@ class VirusTotalRateLimiterTest {
     }
 
     @Test
+    fun `callsInCurrentMinute resets at the minute boundary`() {
+        val limiter = VirusTotalScanner.RateLimiter(minGapMs = 1L)
+        val now = System.currentTimeMillis()
+        val minuteStart = now / 60_000L * 60_000L
+        // Two calls in this wall-clock minute, one in the previous minute.
+        limiter.restoreCallTimestamps(
+            listOf(
+                minuteStart + 5_000L,
+                minuteStart + 30_000L,
+                minuteStart - 1L // previous minute — must NOT count
+            )
+        )
+        assertEquals(2, limiter.callsInCurrentMinute())
+        // The rolling window still sees both the previous-minute edge case that
+        // falls inside 60s, so the two helpers genuinely measure different things.
+    }
+
+    @Test
     fun `restoreCallTimestamps resumes pacing from the most recent call`() {
         val limiter = VirusTotalScanner.RateLimiter(minGapMs = 200L)
         limiter.restoreCallTimestamps(listOf(System.currentTimeMillis() - 50L))

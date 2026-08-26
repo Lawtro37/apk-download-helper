@@ -238,8 +238,22 @@ internal object VirusTotalScanner {
         }
 
         /**
-         * Number of consuming VirusTotal calls made in the trailing 60 seconds.
-         * Read-only and cheap, so the UI can tick it every second.
+         * Number of consuming VirusTotal calls made in the current wall-clock
+         * minute. Unlike the rolling 60s window used for pacing, this resets to
+         * zero at each minute boundary — so the UI's "N of 4" bar reads 0 right
+         * after the clock ticks over and climbs as calls are made, instead of
+         * hovering at 3-4 forever during a long scan.
+         */
+        fun callsInCurrentMinute(): Int {
+            synchronized(lock) {
+                val minuteStart = System.currentTimeMillis() / 60_000L * 60_000L
+                return callTimestamps.count { it >= minuteStart }
+            }
+        }
+
+        /**
+         * Number of consuming VirusTotal calls made in the trailing 60 seconds
+         * (the rolling window the free tier actually enforces).
          */
         fun callsInLastMinute(): Int {
             synchronized(lock) {
