@@ -266,6 +266,7 @@ internal class DownloadService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        restoreAndPersistRateLimiter()
         createNotificationChannels()
     }
 

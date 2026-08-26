@@ -100,4 +100,27 @@ class VirusTotalRateLimiterTest {
         limiter.awaitSlot { false }
         assertEquals(3, limiter.callsInLastMinute())
     }
+
+    @Test
+    fun `restoreCallTimestamps rehydrates recent slots and drops stale ones`() {
+        val limiter = VirusTotalScanner.RateLimiter(minGapMs = 1L)
+        val now = System.currentTimeMillis()
+        limiter.restoreCallTimestamps(
+            listOf(
+                now - 30_000L, // recent — must survive
+                now - 40_000L, // recent — must survive
+                now - 90_000L  // older than 60s — must be dropped
+            )
+        )
+        assertEquals(2, limiter.callsInLastMinute())
+    }
+
+    @Test
+    fun `restoreCallTimestamps resumes pacing from the most recent call`() {
+        val limiter = VirusTotalScanner.RateLimiter(minGapMs = 200L)
+        limiter.restoreCallTimestamps(listOf(System.currentTimeMillis() - 50L))
+        // The 200ms gap should now be measured from the restored timestamp, so
+        // the next slot is not granted instantly.
+        assertTrue(limiter.millisUntilNextSlot() > 0L)
+    }
 }

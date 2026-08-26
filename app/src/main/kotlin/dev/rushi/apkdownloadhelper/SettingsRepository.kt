@@ -10,6 +10,10 @@ import java.io.File
 
 internal const val PREFS_NAME = "helper_settings"
 
+/** Dedicated prefs for the VirusTotal rate limiter's trailing call log. */
+internal const val RATE_LIMITER_PREFS = "rate_limiter"
+private const val KEY_CALL_TIMESTAMPS = "call_timestamps"
+
 /**
  * Mirrors the user's Logcat preference so long-lived clients (built before
  * settings load) can check it per request without holding a Context.
@@ -196,6 +200,27 @@ internal fun Context.saveHelperSettings(settings: HelperSettings) {
 
 private inline fun <reified T : Enum<T>> enumValueOrDefault(name: String?, fallback: T): T =
     name?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
+
+/**
+ * Rehydrate the VirusTotal rate limiter's per-minute call log from storage so
+ * the "N of 4" bar is accurate after a process restart, and install the sink
+ * that persists each future call. Call once at process start from any component
+ * with a Context.
+ */
+internal fun Context.restoreAndPersistRateLimiter() {
+    val prefs = getSharedPreferences(RATE_LIMITER_PREFS, Context.MODE_PRIVATE)
+    val saved = prefs.getString(KEY_CALL_TIMESTAMPS, null)
+        ?.split(',')
+        ?.mapNotNull { it.trim().toLongOrNull() }
+        .orEmpty()
+    VirusTotalScanner.rateLimiter.restoreCallTimestamps(saved)
+    VirusTotalScanner.rateLimiter.onCallRecorded = { timestamps ->
+        getSharedPreferences(RATE_LIMITER_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CALL_TIMESTAMPS, timestamps.joinToString(","))
+            .apply()
+    }
+}
 
 internal fun Context.temporaryDownloadsDir(): File = File(cacheDir, "downloads")
 

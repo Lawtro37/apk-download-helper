@@ -187,6 +187,14 @@ internal object VirusTotalScanner {
         @Volatile
         private var skipRequested = false
 
+        /**
+         * Persistence hook: invoked after every consuming call is recorded, with
+         * the pruned trailing-60s timestamps, so the per-minute count can survive
+         * a process restart. Installed by the Activity/Service that owns a Context.
+         */
+        @Volatile
+        var onCallRecorded: ((List<Long>) -> Unit)? = null
+
         /** Wake any thread currently waiting out the rate-limit gap. */
         fun requestSkip() {
             skipRequested = true
@@ -240,9 +248,28 @@ internal object VirusTotalScanner {
             }
         }
 
+        /**
+         * Rehydrate the trailing call log after a process restart. Timestamps
+         * older than 60s are dropped, and the pacing clock resumes from the most
+         * recent surviving call so the 16s gap also carries across the restart.
+         */
+        fun restoreCallTimestamps(timestamps: Collection<Long>) {
+            synchronized(lock) {
+                val now = System.currentTimeMillis()
+                val cutoff = now - 60_000L
+                timestamps
+                    .filter { it in cutoff..now }
+                    .sorted()
+                    .forEach { callTimestamps.addLast(it) }
+                pruneCallTimestampsLocked()
+                callTimestamps.lastOrNull()?.let { lastCallAtMs = it }
+            }
+        }
+
         private fun recordCallLocked() {
             callTimestamps.addLast(System.currentTimeMillis())
             pruneCallTimestampsLocked()
+            onCallRecorded?.invoke(callTimestamps.toList())
         }
 
         private fun pruneCallTimestampsLocked() {
