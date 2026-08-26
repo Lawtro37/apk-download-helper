@@ -363,6 +363,11 @@ class MainActivity : ComponentActivity() {
                         request = request,
                         state = uiState,
                         settings = helperSettings,
+                        virusTotalApiKey = if (helperSettings.virusTotalEnabled) {
+                            helperSettings.virusTotalApiKey
+                        } else {
+                            ""
+                        },
                         logs = AppLog.entries,
                         installedPackageRefreshToken = installedPackageRefreshToken,
                         selectedPagerPage = selectedPagerPage,
@@ -2232,6 +2237,10 @@ private fun HelperScreen(
     onPagerPageChanged: (Int) -> Unit,
     onSettingsChange: (HelperSettings) -> Unit,
     onRefresh: () -> Unit,
+    // VirusTotal API key, threaded into the scan-flow cards (ask, progress,
+    // result) so quota is shown where scanning actually happens instead of
+    // cluttering the home screen. Empty when VirusTotal is disabled.
+    virusTotalApiKey: String,
     onResolve: (DownloadSource, CandidateOption) -> Unit,
     onDownload: (DownloadCandidate) -> Unit,
     onPickDownloadedFile: (DownloadCandidate, Uri?) -> Unit,
@@ -2387,16 +2396,6 @@ private fun HelperScreen(
                 }
             }
 
-            item {
-                // At-a-glance VirusTotal quota right under the header (next to
-                // the Fast Mode toggle area) so usage is visible without opening
-                // Settings. Hidden when VirusTotal is disabled or no API key is
-                // configured.
-                HomeQuotaCard(
-                    apiKey = if (settings.virusTotalEnabled) settings.virusTotalApiKey else ""
-                )
-            }
-
             if (request == null) {
                 item { EmptyLaunchState(onOpenMorphe) }
                 return@LazyColumn
@@ -2442,14 +2441,16 @@ private fun HelperScreen(
                     DownloadingState(
                         state = state,
                         onCancel = onCancelDownload,
-                        onSkipWait = onSkipScanWait
+                        onSkipWait = onSkipScanWait,
+                        apiKey = virusTotalApiKey
                     )
                 }
                 is UiState.ScanAsk -> item {
                     ScanAskCard(
                         candidate = state.candidate,
                         onScan = onProceedAfterScan,
-                        onSkip = onCancelAfterScan
+                        onSkip = onCancelAfterScan,
+                        apiKey = virusTotalApiKey
                     )
                 }
                 is UiState.ScanResult -> item {
@@ -2458,7 +2459,8 @@ private fun HelperScreen(
                         detail = state.detail,
                         isMalicious = state.isMalicious,
                         onProceed = onProceedAfterScan,
-                        onCancel = onCancelAfterScan
+                        onCancel = onCancelAfterScan,
+                        apiKey = virusTotalApiKey
                     )
                 }
                 is UiState.Error -> item {
@@ -2472,7 +2474,8 @@ private fun HelperScreen(
                             onCancel = onCancelFastMode,
                             onSkipWait = onSkipScanWait,
                             onUseMismatch = onUseFastModeMismatch,
-                            onSkipMismatch = onSkipFastModeMismatch
+                            onSkipMismatch = onSkipFastModeMismatch,
+                            apiKey = virusTotalApiKey
                         )
                     }
                     state.progress.result?.let { result ->
@@ -3498,12 +3501,14 @@ private fun SettingTextFieldRow(
 }
 
 /**
- * Compact at-a-glance quota card for the home screen header area. Shows the
- * daily bucket (the one most likely to run out) with a warning tint as it
- * fills, plus the hourly number. Returns nothing when no API key is set.
+ * Compact at-a-glance VirusTotal quota strip. Shows the daily bucket (the one
+ * most likely to run out) with a warning tint as it fills, plus the hourly
+ * number. Embedded in the scan-flow cards — the ask-to-scan prompt, the
+ * scanning progress card, and the result card — so usage is visible exactly
+ * where scanning happens. Returns nothing when no API key is set.
  */
 @Composable
-private fun HomeQuotaCard(apiKey: String) {
+private fun QuotaStrip(apiKey: String) {
     if (apiKey.isBlank()) return
     val colors = MaterialTheme.colorScheme
     var quota by remember { mutableStateOf<VirusTotalScanner.QuotaUsage?>(null) }
@@ -6050,7 +6055,8 @@ private fun FastModeCard(
     onCancel: () -> Unit,
     onSkipWait: () -> Unit,
     onUseMismatch: () -> Unit,
-    onSkipMismatch: () -> Unit
+    onSkipMismatch: () -> Unit,
+    apiKey: String
 ) {
     HelperCard(cornerRadius = HelperDefaults.SectionCornerRadius) {
         Column(
@@ -6165,6 +6171,7 @@ private fun FastModeCard(
                         icon = Icons.Outlined.Close
                     )
                 }
+                QuotaStrip(apiKey)
                 SkipWaitButton(
                     active = isRateLimitWait(progress.detail),
                     onSkipWait = onSkipWait
@@ -6199,9 +6206,16 @@ private fun isRateLimitWait(status: String): Boolean =
 @Composable
 private fun SkipWaitButton(active: Boolean, onSkipWait: () -> Unit) {
     var secondsLeft by remember { mutableIntStateOf(0) }
+    // Flips when the user taps: hides the button immediately so the tap gives
+    // visible feedback even though the parent's "Waiting…" status (and hence
+    // `active`) stays true until the scan's next network result arrives.
+    var skipped by remember { mutableStateOf(false) }
     LaunchedEffect(active) {
-        if (!active) return@LaunchedEffect
-        while (true) {
+        if (!active) {
+            skipped = false
+            return@LaunchedEffect
+        }
+        while (!skipped) {
             // Re-read from the limiter each tick so the countdown stays honest
             // even if the status message lags a second behind the real pause.
             secondsLeft = ((VirusTotalScanner.rateLimiter.millisUntilNextSlot() + 999) / 1000).toInt()
@@ -6209,10 +6223,13 @@ private fun SkipWaitButton(active: Boolean, onSkipWait: () -> Unit) {
             delay(1000)
         }
     }
-    if (active) {
+    if (active && !skipped) {
         HelperOutlinedButton(
             text = if (secondsLeft > 0) "Skip wait · ${secondsLeft}s" else "Skip wait",
-            onClick = onSkipWait,
+            onClick = {
+                skipped = true
+                onSkipWait()
+            },
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -6245,7 +6262,8 @@ private fun scanPhaseSplit(status: String): Pair<String, String> {
 private fun DownloadingState(
     state: UiState.Downloading,
     onCancel: () -> Unit,
-    onSkipWait: () -> Unit
+    onSkipWait: () -> Unit,
+    apiKey: String
 ) {
     HelperCard {
         Column(
@@ -6295,6 +6313,7 @@ private fun DownloadingState(
                     icon = Icons.Outlined.Close
                 )
             }
+            if (isScan) QuotaStrip(apiKey)
             SkipWaitButton(
                 active = isRateLimitWait(statusText),
                 onSkipWait = onSkipWait
@@ -6307,7 +6326,8 @@ private fun DownloadingState(
 private fun ScanAskCard(
     candidate: DownloadCandidate,
     onScan: () -> Unit,
-    onSkip: () -> Unit
+    onSkip: () -> Unit,
+    apiKey: String
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -6340,6 +6360,7 @@ private fun ScanAskCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            QuotaStrip(apiKey)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -6396,7 +6417,8 @@ private fun ScanResultCard(
     isMalicious: Boolean,
     onProceed: () -> Unit,
     onCancel: () -> Unit,
-    readOnly: Boolean = false
+    readOnly: Boolean = false,
+    apiKey: String = ""
 ) {
     val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -6478,6 +6500,7 @@ private fun ScanResultCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            QuotaStrip(apiKey)
             if (scanResult is VirusTotalScanner.ScanResult.Malicious) {
                 scanResult.suggestedThreatLabel?.let { label ->
                     Text(
