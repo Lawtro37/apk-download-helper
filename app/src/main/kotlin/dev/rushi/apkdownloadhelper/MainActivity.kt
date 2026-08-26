@@ -3530,6 +3530,9 @@ private fun VirusTotalQuotaCard(apiKey: String) {
     var failed by remember { mutableStateOf(false) }
     var minuteUsed by remember { mutableIntStateOf(0) }
     var rollingUsed by remember { mutableIntStateOf(0) }
+    // Seconds until the wall-clock minute boundary ticks over and the per-minute
+    // count resets to 0. Ceiled so it reads 60 right after a rollover.
+    var secsToRollover by remember { mutableIntStateOf(60) }
     val scope = rememberCoroutineScope()
     val load: () -> Unit = {
         scope.launch {
@@ -3547,6 +3550,8 @@ private fun VirusTotalQuotaCard(apiKey: String) {
         while (true) {
             minuteUsed = VirusTotalScanner.rateLimiter.callsInCurrentMinute()
             rollingUsed = VirusTotalScanner.rateLimiter.callsInLastMinute()
+            secsToRollover =
+                ((60_000L - System.currentTimeMillis() % 60_000L + 999L) / 1000L).toInt()
             delay(1000)
         }
     }
@@ -3612,7 +3617,7 @@ private fun VirusTotalQuotaCard(apiKey: String) {
                 minuteUsed,
                 VirusTotalScanner.MINUTE_LOOKUP_LIMIT,
                 flash = maxOf(minuteUsed, rollingUsed) >= VirusTotalScanner.MINUTE_LOOKUP_LIMIT - 1,
-                caption = "rolling 60s: $rollingUsed / ${VirusTotalScanner.MINUTE_LOOKUP_LIMIT} · real limit"
+                caption = "rolling 60s: $rollingUsed / ${VirusTotalScanner.MINUTE_LOOKUP_LIMIT} · resets in ${secsToRollover}s"
             )
             val current = quota
             when {
