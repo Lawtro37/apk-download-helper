@@ -191,6 +191,7 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Cache
@@ -6164,13 +6165,10 @@ private fun FastModeCard(
                         icon = Icons.Outlined.Close
                     )
                 }
-                if (isRateLimitWait(progress.detail)) {
-                    HelperOutlinedButton(
-                        text = "Skip wait",
-                        onClick = onSkipWait,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                SkipWaitButton(
+                    active = isRateLimitWait(progress.detail),
+                    onSkipWait = onSkipWait
+                )
             } else if (!progress.done) {
                 HelperOutlinedButton(
                     text = "Cancel",
@@ -6188,6 +6186,34 @@ private fun FastModeCard(
 private fun isRateLimitWait(status: String): Boolean =
     status.startsWith("Waiting", ignoreCase = true) &&
         status.contains("rate limit", ignoreCase = true)
+
+/**
+ * "Skip wait" with a live countdown of the seconds left in the current
+ * rate-limit pause. While the scan status shows a wait, this re-reads the
+ * shared limiter's remaining gap each second and shows "Skip wait · 12s";
+ * once the pause ends the button disappears. Tapping skips the wait early.
+ */
+@Composable
+private fun SkipWaitButton(active: Boolean, onSkipWait: () -> Unit) {
+    var secondsLeft by remember { mutableIntStateOf(0) }
+    LaunchedEffect(active) {
+        if (!active) return@LaunchedEffect
+        while (true) {
+            // Re-read from the limiter each tick so the countdown stays honest
+            // even if the status message lags a second behind the real pause.
+            secondsLeft = ((VirusTotalScanner.rateLimiter.millisUntilNextSlot() + 999) / 1000).toInt()
+            if (secondsLeft <= 0) break
+            delay(1000)
+        }
+    }
+    if (active) {
+        HelperOutlinedButton(
+            text = if (secondsLeft > 0) "Skip wait · ${secondsLeft}s" else "Skip wait",
+            onClick = onSkipWait,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
 
 private fun scanPhaseSplit(status: String): Pair<String, String> {
     val apk = Regex("""APK (\d+) of (\d+) \(([^)]+)\):? ?(.*)""").find(status)
@@ -6266,13 +6292,10 @@ private fun DownloadingState(
                     icon = Icons.Outlined.Close
                 )
             }
-            if (isRateLimitWait(statusText)) {
-                HelperOutlinedButton(
-                    text = "Skip wait",
-                    onClick = onSkipWait,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
+            SkipWaitButton(
+                active = isRateLimitWait(statusText),
+                onSkipWait = onSkipWait
+            )
         }
     }
 }
