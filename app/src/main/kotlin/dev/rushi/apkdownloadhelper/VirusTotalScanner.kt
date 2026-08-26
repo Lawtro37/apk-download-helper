@@ -252,6 +252,49 @@ internal object VirusTotalScanner {
         }
 
         /**
+         * Milliseconds until the oldest call in the rolling window ages out,
+         * i.e. how long until the free tier's 4/60s window is fully clear. Used
+         * after a real 429 so we retry only once the limit has actually lifted
+         * instead of guessing with a fixed sleep.
+         */
+        fun millisUntilWindowClears(): Long {
+            synchronized(lock) {
+                val oldest = callTimestamps.firstOrNull() ?: return 0L
+                val clearAt = oldest + 60_000L
+                return (clearAt - System.currentTimeMillis()).coerceAtLeast(0L)
+            }
+        }
+
+        /**
+         * Block until the rolling 60s window is clear, sleeping in 1s slices so
+         * a cancel or a Skip-wait tap lands promptly. [onWait] fires with the
+         * seconds remaining so the UI can render a countdown.
+         */
+        fun waitForWindowClear(
+            checkCancelled: () -> Boolean = { false },
+            onWait: ((Long) -> Unit)? = null
+        ) {
+            while (true) {
+                val remaining = millisUntilWindowClears()
+                if (remaining <= 0) {
+                    // Window is already clear but we were still 429'd — e.g. the
+                    // daily/monthly quota is exhausted, which no 60s window can
+                    // fix. Yield once instead of returning instantly, so a
+                    // persistent 429 can't spin into a tight retry loop.
+                    Thread.sleep(1000)
+                    return
+                }
+                onWait?.invoke((remaining / 1000) + 1)
+                if (checkCancelled()) throw CancellationException("Scan cancelled")
+                if (skipRequested) {
+                    skipRequested = false
+                    continue
+                }
+                Thread.sleep(1000)
+            }
+        }
+
+        /**
          * Number of consuming VirusTotal calls made in the trailing 60 seconds
          * (the rolling window the free tier actually enforces).
          */
@@ -645,20 +688,23 @@ internal object VirusTotalScanner {
             .addHeader("x-apikey", apiKey)
             .get()
             .build()
-        val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: return null
+        var response = client.newCall(request).execute()
         if (response.code == 429) {
-            // Rate limited: back off once and retry before giving up.
-            Log.d(TAG, "Report lookup rate limited (429), retrying after backoff.")
-            Thread.sleep(20_000)
-            val retry = client.newCall(request).execute()
-            val retryBody = retry.body?.string() ?: return null
-            if (retry.code == 404) return null
-            if (!retry.isSuccessful) {
-                throw Exception("Report lookup failed (${retry.code}): $retryBody")
+            // The 4/60s window is genuinely exhausted: wait until it clears
+            // (surfacing a live countdown), then retry — automatically and as
+            // many times as needed, instead of one blind 20s sleep + give-up.
+            Log.d(TAG, "Report lookup rate limited (429), waiting for the limit to clear.")
+            while (response.code == 429) {
+                rateLimiter.waitForWindowClear(
+                    checkCancelled = checkCancelled,
+                    onWait = { secs ->
+                        onProgress?.invoke("Rate limit hit — retrying in ${secs}s…")
+                    }
+                )
+                response = client.newCall(request).execute()
             }
-            return gson.fromJson(retryBody, FileReportResponse::class.java)
         }
+        val body = response.body?.string() ?: return null
         if (response.code == 404) return null
         if (!response.isSuccessful) {
             throw Exception("Report lookup failed (${response.code}): $body")
@@ -796,15 +842,20 @@ internal object VirusTotalScanner {
                 .get()
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: throw Exception("Empty response")
-
-            if (response.code == 429) {
-                // Rate limited: back off for a while and keep waiting.
-                Log.d(TAG, "Analysis poll rate limited (429), backing off.")
-                Thread.sleep(15_000)
-                return@repeat
+            var response = client.newCall(request).execute()
+            while (response.code == 429) {
+                // Window exhausted: wait until it clears (live countdown), then
+                // poll again — this does not consume an attempt.
+                Log.d(TAG, "Analysis poll rate limited (429), waiting for the limit to clear.")
+                rateLimiter.waitForWindowClear(
+                    checkCancelled = checkCancelled,
+                    onWait = { secs ->
+                        onProgress?.invoke("Rate limit hit — retrying in ${secs}s…")
+                    }
+                )
+                response = client.newCall(request).execute()
             }
+            val body = response.body?.string() ?: throw Exception("Empty response")
 
             if (!response.isSuccessful) {
                 throw Exception("Analysis poll failed (${response.code}): $body")

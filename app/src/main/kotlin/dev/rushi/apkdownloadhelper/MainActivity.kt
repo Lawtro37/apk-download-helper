@@ -6143,11 +6143,16 @@ private fun FastModeCard(
     }
 }
 
-// Splits a scan status into a bold phase label + muted detail so the card
-// distinguishes e.g. "Scanning APK 2 of 4" from "split_1.apk · Waiting 16s…".
+// True when the scan is paused on the app's own pacing gap ("Waiting Ns for
+// rate limit…") — the only wait the Skip button can meaningfully cut short.
 // Match the pause anywhere in the status: the bundle scanner prefixes inner
 // APK statuses with "APK 2 of 4 (split_1.apk): …", so a plain prefix check
 // would never see the "Waiting Ns for rate limit…" inside.
+//
+// A genuine 429 ("Rate limit hit — retrying in Ns…") is deliberately NOT
+// matched: skipping it is futile (the server keeps rejecting until the 60s
+// window clears) and its countdown comes from the window, not the gap, so the
+// Skip button would show a wrong number. That wait auto-retries instead.
 private fun isRateLimitWait(status: String): Boolean =
     status.contains("waiting", ignoreCase = true) &&
         status.contains("rate limit", ignoreCase = true)

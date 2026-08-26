@@ -120,17 +120,46 @@ class VirusTotalRateLimiterTest {
         val limiter = VirusTotalScanner.RateLimiter(minGapMs = 1L)
         val now = System.currentTimeMillis()
         val minuteStart = now / 60_000L * 60_000L
-        // Two calls in this wall-clock minute, one in the previous minute.
+        val msIntoMinute = now - minuteStart
+        // Two calls safely inside this wall-clock minute (clamped so neither is
+        // ever in the future regardless of where we are in the minute), and one
+        // in the previous minute that must NOT count.
         limiter.restoreCallTimestamps(
             listOf(
-                minuteStart + 5_000L,
-                minuteStart + 30_000L,
+                minuteStart + (msIntoMinute - 500L).coerceAtLeast(0L),
+                now,
                 minuteStart - 1L // previous minute — must NOT count
             )
         )
         assertEquals(2, limiter.callsInCurrentMinute())
-        // The rolling window still sees both the previous-minute edge case that
+        // The rolling window still sees the previous-minute edge case that
         // falls inside 60s, so the two helpers genuinely measure different things.
+    }
+
+    @Test
+    fun `waitForWindowClear waits until the oldest call ages out`() {
+        val limiter = VirusTotalScanner.RateLimiter(minGapMs = 1L)
+        // Oldest call 2s ago -> window clears in ~58s.
+        limiter.restoreCallTimestamps(listOf(System.currentTimeMillis() - 2_000L))
+        assertTrue(limiter.millisUntilWindowClears() > 55_000L)
+
+        // A window that is already clear returns quickly (bounded 1s backoff), so
+        // a persistent 429 (e.g. daily quota exhausted) can't spin a tight loop.
+        val clear = VirusTotalScanner.RateLimiter(minGapMs = 1L)
+        val clearStart = System.currentTimeMillis()
+        clear.waitForWindowClear()
+        assertTrue(System.currentTimeMillis() - clearStart < 2_500L)
+
+        // A near-expiry window fires the countdown once with the seconds
+        // remaining, then returns once it clears — without sleeping the full 60s.
+        val short = VirusTotalScanner.RateLimiter(minGapMs = 1L)
+        short.restoreCallTimestamps(listOf(System.currentTimeMillis() - 59_000L))
+        val waits = mutableListOf<Long>()
+        val shortStart = System.currentTimeMillis()
+        short.waitForWindowClear(onWait = { waits += it })
+        assertTrue(waits.isNotEmpty())
+        assertTrue(waits.first() in 1..2)
+        assertTrue(System.currentTimeMillis() - shortStart < 4_000L)
     }
 
     @Test
