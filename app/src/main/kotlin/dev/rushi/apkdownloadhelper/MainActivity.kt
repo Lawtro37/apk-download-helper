@@ -138,6 +138,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -3598,11 +3602,12 @@ private fun VirusTotalQuotaCard(apiKey: String) {
                 }
             }
             // Per minute is always available locally, even while the API quota
-            // is still loading.
+            // is still loading. It flashes amber as it nears the 4/min cap.
             QuotaBar(
                 "Per minute",
                 minuteUsed,
-                VirusTotalScanner.MINUTE_LOOKUP_LIMIT
+                VirusTotalScanner.MINUTE_LOOKUP_LIMIT,
+                flash = minuteUsed >= VirusTotalScanner.MINUTE_LOOKUP_LIMIT - 1
             )
             val current = quota
             when {
@@ -3622,13 +3627,38 @@ private fun VirusTotalQuotaCard(apiKey: String) {
 }
 
 @Composable
-private fun QuotaBar(label: String, used: Int, allowed: Int) {
+private fun QuotaBar(
+    label: String,
+    used: Int,
+    allowed: Int,
+    // Pulsing amber flash used for the per-minute bar when it nears the cap.
+    flash: Boolean = false
+) {
     val colors = MaterialTheme.colorScheme
     val ratio = if (allowed > 0) used.toFloat() / allowed else 0f
-    val barColor = when {
+    val baseColor = when {
         ratio >= 0.9f -> colors.error
         ratio >= 0.7f -> Color(0xFFE0A030)
         else -> colors.primary
+    }
+    // When near the cap, pulse the bar between amber and a dim amber so the
+    // mid-scan warning is visible even without looking at the number.
+    val barColor = if (flash) {
+        val transition = rememberInfiniteTransition(label = "quota-flash-$label")
+        val amber = Color(0xFFE0A030)
+        amber.copy(
+            alpha = transition.animateFloat(
+                initialValue = 1f,
+                targetValue = 0.3f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(600),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "quota-alpha-$label"
+            ).value
+        )
+    } else {
+        baseColor
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
