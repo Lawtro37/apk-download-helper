@@ -4670,7 +4670,7 @@ private fun SourcePickerFlow(
                     SectionTitle("Download source")
                     if (!sourcesExpanded) {
                         Text(
-                            text = "· ${currentGroup.source.label}",
+                            text = "· ${groups.size}",
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
@@ -5067,6 +5067,11 @@ private fun SelectedSourceBar(source: DownloadSource) {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
+                Text(
+                    text = "Selected source",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
                 Text(
                     text = source.label,
                     fontWeight = FontWeight.Bold,
