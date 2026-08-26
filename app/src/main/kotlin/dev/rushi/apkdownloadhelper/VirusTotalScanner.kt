@@ -682,7 +682,13 @@ internal object VirusTotalScanner {
         onProgress: ((String) -> Unit)? = null,
         checkCancelled: () -> Boolean = { false }
     ): FileReportResponse? {
-        pace(onProgress, checkCancelled)
+        // Report lookups are NOT pre-paced through the shared limiter. A cached
+        // lookup is a cheap GET and pacing each one ahead of time is what made
+        // split bundles stall for minutes (every inner APK already analysed).
+        // The 429 retry loop below throttles against the server's real 4/60s
+        // window, so lookups fly through when the window is clear and only wait
+        // when the server actually rejects, never by a flat 16s guess. Uploads
+        // and analysis polls keep their own pacing — they are the heavy calls.
         val request = Request.Builder()
             .url("$BASE_URL/files/$sha256")
             .addHeader("x-apikey", apiKey)
