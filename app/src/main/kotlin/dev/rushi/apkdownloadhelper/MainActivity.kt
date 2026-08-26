@@ -6681,8 +6681,31 @@ private fun ScanResultCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        // Distinguish a cached report (VirusTotal already had it) from a
+                        // fresh upload so users can tell why an APK's scan was instant.
+                        if (!apk.failed) {
+                            androidx.compose.material3.Surface(
+                                shape = RoundedCornerShape(50),
+                                color = if (apk.cached) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                }
+                            ) {
+                                Text(
+                                    text = if (apk.cached) "cached" else "fresh",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (apk.cached) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
                         Text(
-                            text = "${apk.detections}/${apk.totalEngines}",
+                            text = if (apk.failed) "failed" else "${apk.detections}/${apk.totalEngines}",
                             style = MaterialTheme.typography.bodySmall,
                             color = apkVerdictColor
                         )

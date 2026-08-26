@@ -146,7 +146,10 @@ internal object VirusTotalScanner {
         val detections: Int,
         val sha256: String?,
         val engines: List<EngineDetection> = emptyList(),
-        val failed: Boolean = false
+        val failed: Boolean = false,
+        /** True when the verdict came from a report VirusTotal already had
+         *  on file; false when the inner APK was freshly uploaded. */
+        val cached: Boolean = false
     )
 
     /** Free-tier request quotas reported by /users/{id}/overall_quotas. */
@@ -499,21 +502,24 @@ internal object VirusTotalScanner {
                     name = name,
                     totalEngines = result.totalEngines,
                     detections = 0,
-                    sha256 = result.sha256
+                    sha256 = result.sha256,
+                    cached = result.cached
                 )
                 is ScanResult.Malicious -> BundleApkResult(
                     name = name,
                     totalEngines = result.totalEngines,
                     detections = result.detections,
                     sha256 = result.sha256,
-                    engines = result.engines
+                    engines = result.engines,
+                    cached = result.cached
                 )
                 is ScanResult.Error -> BundleApkResult(
                     name = name,
                     totalEngines = 0,
                     detections = 0,
                     sha256 = null,
-                    failed = true
+                    failed = true,
+                    cached = false
                 )
             }
         }
