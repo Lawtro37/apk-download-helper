@@ -160,6 +160,13 @@ internal object VirusTotalScanner {
     }
 
     /**
+     * Free-tier per-minute lookup cap. The overall_quotas endpoint only reports
+     * hourly/daily/monthly buckets, so the "per minute" number is tracked
+     * client-side in [RateLimiter.callsInLastMinute] against this limit.
+     */
+    internal const val MINUTE_LOOKUP_LIMIT = 4
+
+    /**
      * Global flat-rate token gate between VirusTotal calls. Every API call
      * (report fetch, upload, poll, quota) records its timestamp here, so calls
      * spaced across separate files — a bundle's inner APKs today, a bulk queue
@@ -170,6 +177,9 @@ internal object VirusTotalScanner {
     internal class RateLimiter(private val minGapMs: Long = MIN_CALL_GAP_MS) {
         private val lock = Any()
         private var lastCallAtMs = 0L
+        // Timestamps of every consuming API call, pruned to the trailing 60s so
+        // the per-minute "N of 4" bar reflects the calls this app actually made.
+        private val callTimestamps = ArrayDeque<Long>()
 
         // Set from ANY thread (e.g. a "Skip wait" button in the UI) to cut the
         // current rate-limit wait short. Consumed by the next awaitSlot that
@@ -192,6 +202,7 @@ internal object VirusTotalScanner {
                         // Not our turn yet.
                     } else {
                         lastCallAtMs = System.currentTimeMillis()
+                        recordCallLocked()
                         // Just claimed our slot: clear any stale skip signal so
                         // it doesn't leak into the next wait.
                         skipRequested = false
@@ -206,12 +217,38 @@ internal object VirusTotalScanner {
                     if (checkCancelled()) throw CancellationException("Scan cancelled")
                     if (skipRequested) {
                         skipRequested = false
-                        synchronized(lock) { lastCallAtMs = System.currentTimeMillis() }
+                        synchronized(lock) {
+                            lastCallAtMs = System.currentTimeMillis()
+                            recordCallLocked()
+                        }
                         return
                     }
                     Thread.sleep(1000)
                     remaining -= 1000
                 }
+            }
+        }
+
+        /**
+         * Number of consuming VirusTotal calls made in the trailing 60 seconds.
+         * Read-only and cheap, so the UI can tick it every second.
+         */
+        fun callsInLastMinute(): Int {
+            synchronized(lock) {
+                pruneCallTimestampsLocked()
+                return callTimestamps.size
+            }
+        }
+
+        private fun recordCallLocked() {
+            callTimestamps.addLast(System.currentTimeMillis())
+            pruneCallTimestampsLocked()
+        }
+
+        private fun pruneCallTimestampsLocked() {
+            val cutoff = System.currentTimeMillis() - 60_000L
+            while (callTimestamps.isNotEmpty() && callTimestamps.first() < cutoff) {
+                callTimestamps.removeFirst()
             }
         }
 

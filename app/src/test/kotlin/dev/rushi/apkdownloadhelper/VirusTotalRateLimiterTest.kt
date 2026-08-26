@@ -90,4 +90,14 @@ class VirusTotalRateLimiterTest {
         assertEquals(1, messages.size)
         assertTrue(messages.first().contains("rate limit"))
     }
+
+    @Test
+    fun `callsInLastMinute counts granted slots`() {
+        val limiter = VirusTotalScanner.RateLimiter(minGapMs = 1L)
+        assertEquals(0, limiter.callsInLastMinute())
+        limiter.awaitSlot { false }
+        limiter.awaitSlot { false }
+        limiter.awaitSlot { false }
+        assertEquals(3, limiter.callsInLastMinute())
+    }
 }

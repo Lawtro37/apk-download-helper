@@ -2437,31 +2437,39 @@ private fun HelperScreen(
                 }
 
                 is UiState.CheckingPickedFile -> item { CheckingPickedFileState(state) }
-                is UiState.Downloading -> item {
-                    DownloadingState(
-                        state = state,
-                        onCancel = onCancelDownload,
-                        onSkipWait = onSkipScanWait,
-                        apiKey = virusTotalApiKey
-                    )
+                is UiState.Downloading -> {
+                    item {
+                        DownloadingState(
+                            state = state,
+                            onCancel = onCancelDownload,
+                            onSkipWait = onSkipScanWait
+                        )
+                    }
+                    if (isScanStatus(state.statusMessage)) {
+                        item { VirusTotalQuotaCard(virusTotalApiKey) }
+                    }
                 }
-                is UiState.ScanAsk -> item {
-                    ScanAskCard(
-                        candidate = state.candidate,
-                        onScan = onProceedAfterScan,
-                        onSkip = onCancelAfterScan,
-                        apiKey = virusTotalApiKey
-                    )
+                is UiState.ScanAsk -> {
+                    item {
+                        ScanAskCard(
+                            candidate = state.candidate,
+                            onScan = onProceedAfterScan,
+                            onSkip = onCancelAfterScan
+                        )
+                    }
+                    item { VirusTotalQuotaCard(virusTotalApiKey) }
                 }
-                is UiState.ScanResult -> item {
-                    ScanResultCard(
-                        scanResult = state.scanResult,
-                        detail = state.detail,
-                        isMalicious = state.isMalicious,
-                        onProceed = onProceedAfterScan,
-                        onCancel = onCancelAfterScan,
-                        apiKey = virusTotalApiKey
-                    )
+                is UiState.ScanResult -> {
+                    item {
+                        ScanResultCard(
+                            scanResult = state.scanResult,
+                            detail = state.detail,
+                            isMalicious = state.isMalicious,
+                            onProceed = onProceedAfterScan,
+                            onCancel = onCancelAfterScan
+                        )
+                    }
+                    item { VirusTotalQuotaCard(virusTotalApiKey) }
                 }
                 is UiState.Error -> item {
                     ErrorState(message = state.message, onRefresh = onRefresh, onCancel = onCancel)
@@ -2474,9 +2482,11 @@ private fun HelperScreen(
                             onCancel = onCancelFastMode,
                             onSkipWait = onSkipScanWait,
                             onUseMismatch = onUseFastModeMismatch,
-                            onSkipMismatch = onSkipFastModeMismatch,
-                            apiKey = virusTotalApiKey
+                            onSkipMismatch = onSkipFastModeMismatch
                         )
+                    }
+                    if (isScanStatus(state.progress.detail)) {
+                        item { VirusTotalQuotaCard(virusTotalApiKey) }
                     }
                     state.progress.result?.let { result ->
                         item {
@@ -3058,7 +3068,7 @@ private fun HelperSettingsCard(
                     )
                 }
                 if (settings.virusTotalApiKey.isNotBlank()) {
-                    VirusTotalQuotaRow(apiKey = settings.virusTotalApiKey)
+                    VirusTotalQuotaCard(apiKey = settings.virusTotalApiKey)
                 }
             }
         }
@@ -3501,118 +3511,19 @@ private fun SettingTextFieldRow(
 }
 
 /**
- * Compact at-a-glance VirusTotal quota strip. Shows the daily bucket (the one
- * most likely to run out) with a warning tint as it fills, plus the hourly
- * number. Embedded in the scan-flow cards — the ask-to-scan prompt, the
- * scanning progress card, and the result card — so usage is visible exactly
- * where scanning happens. Returns nothing when no API key is set.
+ * Detailed VirusTotal quota card shared by the Settings screen and the
+ * scan-flow screens. Shows the live per-minute bucket (tracked client-side
+ * against the 4/min free tier) plus the hourly/daily/monthly buckets reported
+ * by the API. Returns nothing when no API key is set.
  */
 @Composable
-private fun QuotaStrip(apiKey: String) {
+private fun VirusTotalQuotaCard(apiKey: String) {
     if (apiKey.isBlank()) return
-    val colors = MaterialTheme.colorScheme
-    var quota by remember { mutableStateOf<VirusTotalScanner.QuotaUsage?>(null) }
-    var failed by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val load: () -> Unit = {
-        scope.launch {
-            failed = false
-            quota = withContext(Dispatchers.IO) { VirusTotalScanner.fetchQuotaUsage(apiKey) }
-            if (quota == null) failed = true
-        }
-    }
-    LaunchedEffect(apiKey) { load() }
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
-        color = sourceCardFill(),
-        border = BorderStroke(1.dp, sourceCardBorder())
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.NetworkCheck,
-                    contentDescription = null,
-                    tint = colors.primary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = "VirusTotal quota",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
-                val current = quota
-                if (current == null && !failed) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "Refresh quota",
-                        tint = colors.primary,
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(RoundedCornerShape(50))
-                            .clickable { load() }
-                            .padding(2.dp)
-                    )
-                }
-            }
-            val current = quota
-            when {
-                current != null -> {
-                    val ratio = current.dailyUsed.toFloat() / current.dailyAllowed
-                    val barColor = when {
-                        ratio >= 0.9f -> colors.error
-                        ratio >= 0.7f -> Color(0xFFE0A030)
-                        else -> colors.primary
-                    }
-                    LinearProgressIndicator(
-                        progress = { ratio.coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
-                        color = barColor,
-                        trackColor = colors.surfaceVariant
-                    )
-                    Text(
-                        text = "${current.dailyUsed} of ${current.dailyAllowed} today · " +
-                            "${current.hourlyUsed}/${current.hourlyAllowed} hourly",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant
-                    )
-                }
-                failed -> Text(
-                    text = "VirusTotal quota unavailable — check your API key in Settings.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.error
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun VirusTotalQuotaRow(apiKey: String) {
     val colors = MaterialTheme.colorScheme
     var quota by remember { mutableStateOf<VirusTotalScanner.QuotaUsage?>(null) }
     var loading by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    var minuteUsed by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val load: () -> Unit = {
         scope.launch {
@@ -3623,7 +3534,15 @@ private fun VirusTotalQuotaRow(apiKey: String) {
             loading = false
         }
     }
-    LaunchedEffect(apiKey) { load() }
+    LaunchedEffect(apiKey) {
+        load()
+        // The per-minute count is tracked locally in the rate limiter, so tick
+        // it once a second to keep the bar honest while a scan is running.
+        while (true) {
+            minuteUsed = VirusTotalScanner.rateLimiter.callsInLastMinute()
+            delay(1000)
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -3649,12 +3568,12 @@ private fun VirusTotalQuotaRow(apiKey: String) {
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "Quota usage",
+                        "VirusTotal quota",
                         fontWeight = FontWeight.Bold,
                         color = colors.onSurface
                     )
                     Text(
-                        "Free tier: 240/hour · 500/day · 15,500/month",
+                        "Free tier: 4/min · 240/hour · 500/day · 15,500/month",
                         color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -3677,6 +3596,13 @@ private fun VirusTotalQuotaRow(apiKey: String) {
                     )
                 }
             }
+            // Per minute is always available locally, even while the API quota
+            // is still loading.
+            QuotaBar(
+                "Per minute",
+                minuteUsed,
+                VirusTotalScanner.MINUTE_LOOKUP_LIMIT
+            )
             val current = quota
             when {
                 current != null -> {
@@ -6055,8 +5981,7 @@ private fun FastModeCard(
     onCancel: () -> Unit,
     onSkipWait: () -> Unit,
     onUseMismatch: () -> Unit,
-    onSkipMismatch: () -> Unit,
-    apiKey: String
+    onSkipMismatch: () -> Unit
 ) {
     HelperCard(cornerRadius = HelperDefaults.SectionCornerRadius) {
         Column(
@@ -6171,7 +6096,6 @@ private fun FastModeCard(
                         icon = Icons.Outlined.Close
                     )
                 }
-                QuotaStrip(apiKey)
                 SkipWaitButton(
                     active = isRateLimitWait(progress.detail),
                     onSkipWait = onSkipWait
@@ -6196,6 +6120,17 @@ private fun FastModeCard(
 private fun isRateLimitWait(status: String): Boolean =
     status.contains("waiting", ignoreCase = true) &&
         status.contains("rate limit", ignoreCase = true)
+
+/** True when a status message belongs to the VirusTotal scan phase (as opposed
+ *  to the download phase that reuses the same card). */
+private fun isScanStatus(status: String?): Boolean =
+    status?.let {
+        it.startsWith("APK ") || it.startsWith("Extract") ||
+            it.startsWith("Opening") || it.startsWith("Upload") ||
+            it.startsWith("Waiting") || it.startsWith("Aggregat") ||
+            it.startsWith("Scanning") || it.startsWith("Checking VirusTotal") ||
+            it.startsWith("Queued") || it.startsWith("VirusTotal engines")
+    } == true
 
 /**
  * "Skip wait" with a live countdown of the seconds left in the current
@@ -6262,8 +6197,7 @@ private fun scanPhaseSplit(status: String): Pair<String, String> {
 private fun DownloadingState(
     state: UiState.Downloading,
     onCancel: () -> Unit,
-    onSkipWait: () -> Unit,
-    apiKey: String
+    onSkipWait: () -> Unit
 ) {
     HelperCard {
         Column(
@@ -6271,9 +6205,7 @@ private fun DownloadingState(
             verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
         ) {
             val statusText = state.statusMessage ?: "Downloading from ${state.candidate.source.label}"
-            val isScan = statusText.startsWith("APK ") || statusText.startsWith("Extract") ||
-                statusText.startsWith("Opening") || statusText.startsWith("Upload") ||
-                statusText.startsWith("Waiting") || statusText.startsWith("Aggregat")
+            val isScan = isScanStatus(statusText)
             val (phase, detail) = if (isScan) scanPhaseSplit(statusText) else (statusText to "")
             Text(
                 text = phase,
@@ -6313,7 +6245,6 @@ private fun DownloadingState(
                     icon = Icons.Outlined.Close
                 )
             }
-            if (isScan) QuotaStrip(apiKey)
             SkipWaitButton(
                 active = isRateLimitWait(statusText),
                 onSkipWait = onSkipWait
@@ -6326,8 +6257,7 @@ private fun DownloadingState(
 private fun ScanAskCard(
     candidate: DownloadCandidate,
     onScan: () -> Unit,
-    onSkip: () -> Unit,
-    apiKey: String
+    onSkip: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -6360,7 +6290,6 @@ private fun ScanAskCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            QuotaStrip(apiKey)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -6417,8 +6346,7 @@ private fun ScanResultCard(
     isMalicious: Boolean,
     onProceed: () -> Unit,
     onCancel: () -> Unit,
-    readOnly: Boolean = false,
-    apiKey: String = ""
+    readOnly: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -6500,7 +6428,6 @@ private fun ScanResultCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            QuotaStrip(apiKey)
             if (scanResult is VirusTotalScanner.ScanResult.Malicious) {
                 scanResult.suggestedThreatLabel?.let { label ->
                     Text(
