@@ -4652,6 +4652,7 @@ private fun SourcePickerFlow(
     SideEffect { onPrimaryActionChanged(action) }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SelectedSourceBar(source = currentGroup.source)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -4734,8 +4735,6 @@ private fun SourcePickerFlow(
                 )
             }
         }
-
-        SelectedSourceBar(source = currentGroup.source)
 
         HorizontalPager(
             state = pagerState,
