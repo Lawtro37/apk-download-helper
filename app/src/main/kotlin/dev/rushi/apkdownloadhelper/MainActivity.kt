@@ -384,6 +384,7 @@ class MainActivity : ComponentActivity() {
                             finish()
                         },
                         onCancelDownload = ::cancelDownload,
+                        onSkipScanWait = { VirusTotalScanner.rateLimiter.requestSkip() },
                         onCancelFastMode = ::cancelFastMode,
                         onUseFastModeMismatch = { fastModeChoose(FastModeChoice.USE) },
                         onSkipFastModeMismatch = { fastModeChoose(FastModeChoice.NEXT) },
@@ -2242,6 +2243,7 @@ private fun HelperScreen(
     onClearLogs: () -> Unit,
     onCancel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onSkipScanWait: () -> Unit,
     onCancelFastMode: () -> Unit,
     onUseFastModeMismatch: () -> Unit,
     onSkipFastModeMismatch: () -> Unit,
@@ -2435,7 +2437,13 @@ private fun HelperScreen(
                 }
 
                 is UiState.CheckingPickedFile -> item { CheckingPickedFileState(state) }
-                is UiState.Downloading -> item { DownloadingState(state, onCancelDownload) }
+                is UiState.Downloading -> item {
+                    DownloadingState(
+                        state = state,
+                        onCancel = onCancelDownload,
+                        onSkipWait = onSkipScanWait
+                    )
+                }
                 is UiState.ScanAsk -> item {
                     ScanAskCard(
                         candidate = state.candidate,
@@ -2461,6 +2469,7 @@ private fun HelperScreen(
                         FastModeCard(
                             progress = state.progress,
                             onCancel = onCancelFastMode,
+                            onSkipWait = onSkipScanWait,
                             onUseMismatch = onUseFastModeMismatch,
                             onSkipMismatch = onSkipFastModeMismatch
                         )
@@ -6038,6 +6047,7 @@ private fun CheckingPickedFileState(state: UiState.CheckingPickedFile) {
 private fun FastModeCard(
     progress: FastModeProgress,
     onCancel: () -> Unit,
+    onSkipWait: () -> Unit,
     onUseMismatch: () -> Unit,
     onSkipMismatch: () -> Unit
 ) {
@@ -6154,6 +6164,13 @@ private fun FastModeCard(
                         icon = Icons.Outlined.Close
                     )
                 }
+                if (isRateLimitWait(progress.detail)) {
+                    HelperOutlinedButton(
+                        text = "Skip wait",
+                        onClick = onSkipWait,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             } else if (!progress.done) {
                 HelperOutlinedButton(
                     text = "Cancel",
@@ -6168,6 +6185,10 @@ private fun FastModeCard(
 
 // Splits a scan status into a bold phase label + muted detail so the card
 // distinguishes e.g. "Scanning APK 2 of 4" from "split_1.apk · Waiting 16s…".
+private fun isRateLimitWait(status: String): Boolean =
+    status.startsWith("Waiting", ignoreCase = true) &&
+        status.contains("rate limit", ignoreCase = true)
+
 private fun scanPhaseSplit(status: String): Pair<String, String> {
     val apk = Regex("""APK (\d+) of (\d+) \(([^)]+)\):? ?(.*)""").find(status)
     if (apk != null) {
@@ -6192,7 +6213,11 @@ private fun scanPhaseSplit(status: String): Pair<String, String> {
 }
 
 @Composable
-private fun DownloadingState(state: UiState.Downloading, onCancel: () -> Unit) {
+private fun DownloadingState(
+    state: UiState.Downloading,
+    onCancel: () -> Unit,
+    onSkipWait: () -> Unit
+) {
     HelperCard {
         Column(
             modifier = Modifier.padding(HelperDefaults.ContentPadding),
@@ -6239,6 +6264,13 @@ private fun DownloadingState(state: UiState.Downloading, onCancel: () -> Unit) {
                     text = "Cancel",
                     onClick = onCancel,
                     icon = Icons.Outlined.Close
+                )
+            }
+            if (isRateLimitWait(statusText)) {
+                HelperOutlinedButton(
+                    text = "Skip wait",
+                    onClick = onSkipWait,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }

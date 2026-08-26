@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class VirusTotalRateLimiterTest {
 
@@ -50,6 +52,24 @@ class VirusTotalRateLimiterTest {
         )
         // Cancellation should land in well under the full 5s gap.
         assertTrue(System.currentTimeMillis() - start < 4000)
+    }
+
+    @Test
+    fun `skip request releases a pending wait promptly`() {
+        val limiter = VirusTotalScanner.RateLimiter(minGapMs = 5_000L)
+        limiter.awaitSlot { false }
+        val released = CountDownLatch(1)
+        val waiter = Thread {
+            limiter.awaitSlot { false }
+            released.countDown()
+        }
+        waiter.start()
+
+        Thread.sleep(150)
+        limiter.requestSkip()
+
+        assertTrue(released.await(2, TimeUnit.SECONDS))
+        waiter.join(500)
     }
 
     @Test

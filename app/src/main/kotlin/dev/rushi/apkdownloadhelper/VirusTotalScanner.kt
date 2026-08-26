@@ -171,6 +171,17 @@ internal object VirusTotalScanner {
         private val lock = Any()
         private var lastCallAtMs = 0L
 
+        // Set from ANY thread (e.g. a "Skip wait" button in the UI) to cut the
+        // current rate-limit wait short. Consumed by the next awaitSlot that
+        // observes it; then reset, so a single tap skips exactly one wait.
+        @Volatile
+        private var skipRequested = false
+
+        /** Wake any thread currently waiting out the rate-limit gap. */
+        fun requestSkip() {
+            skipRequested = true
+        }
+
         /** Wait until at least [minGapMs] has passed since the previous call. */
         fun awaitSlot(checkCancelled: () -> Boolean = { false }) {
             while (true) {
@@ -181,13 +192,23 @@ internal object VirusTotalScanner {
                         // Not our turn yet.
                     } else {
                         lastCallAtMs = System.currentTimeMillis()
+                        // Just claimed our slot: clear any stale skip signal so
+                        // it doesn't leak into the next wait.
+                        skipRequested = false
                         return
                     }
                 }
-                // Sleep in 1s slices so cancellation is honoured within a second.
+                // Sleep in 1s slices so cancellation and a skip both land within
+                // a second. requestSkip() breaks out early — attempting the call
+                // then may 429, which the caller already backoffs off and retries.
                 var remaining = waitMs
                 while (remaining > 0) {
                     if (checkCancelled()) throw CancellationException("Scan cancelled")
+                    if (skipRequested) {
+                        skipRequested = false
+                        synchronized(lock) { lastCallAtMs = System.currentTimeMillis() }
+                        return
+                    }
                     Thread.sleep(1000)
                     remaining -= 1000
                 }
