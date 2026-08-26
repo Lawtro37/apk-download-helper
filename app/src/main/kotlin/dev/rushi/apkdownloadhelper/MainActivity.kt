@@ -408,7 +408,8 @@ class MainActivity : ComponentActivity() {
                         onSolveCaptcha = ::openCaptchaBrowser,
                         onRequestFileTypeChange = ::changeRequestedFileType,
                         onProceedAfterScan = ::proceedAfterScan,
-                        onCancelAfterScan = ::cancelAfterScan
+                        onCancelAfterScan = ::cancelAfterScan,
+                        onSkipScan = ::skipScanAndHandoff
                     )
                 }
                 val offer = reuseOffer
@@ -1104,6 +1105,14 @@ class MainActivity : ComponentActivity() {
     private fun cancelAfterScan() {
         startService(
             Intent(this, DownloadService::class.java).setAction(ACTION_SCAN_CANCEL)
+        )
+        uiState = UiState.Loading
+    }
+
+    private fun skipScanAndHandoff() {
+        appendLog("User skipped the VirusTotal scan — handing off unverified.", LogLevel.Warning)
+        startService(
+            Intent(this, DownloadService::class.java).setAction(ACTION_SCAN_SKIP)
         )
         uiState = UiState.Loading
     }
@@ -2271,7 +2280,8 @@ private fun HelperScreen(
     onSolveCaptcha: (DownloadCandidate) -> Unit,
     onRequestFileTypeChange: (String) -> Unit,
     onProceedAfterScan: () -> Unit,
-    onCancelAfterScan: () -> Unit
+    onCancelAfterScan: () -> Unit,
+    onSkipScan: () -> Unit
 ) {
     var showSettings by remember { mutableStateOf(false) }
     var pendingFilePick by remember { mutableStateOf<DownloadCandidate?>(null) }
@@ -2452,7 +2462,8 @@ private fun HelperScreen(
                         DownloadingState(
                             state = state,
                             onCancel = onCancelDownload,
-                            onSkipWait = onSkipScanWait
+                            onSkipWait = onSkipScanWait,
+                            onSkipScan = onSkipScan
                         )
                     }
                     if (isScanStatus(state.statusMessage)) {
@@ -2492,7 +2503,8 @@ private fun HelperScreen(
                             onCancel = onCancelFastMode,
                             onSkipWait = onSkipScanWait,
                             onUseMismatch = onUseFastModeMismatch,
-                            onSkipMismatch = onSkipFastModeMismatch
+                            onSkipMismatch = onSkipFastModeMismatch,
+                            onSkipScan = onSkipScan
                         )
                     }
                     if (isScanStatus(state.progress.detail)) {
@@ -6130,7 +6142,8 @@ private fun FastModeCard(
     onCancel: () -> Unit,
     onSkipWait: () -> Unit,
     onUseMismatch: () -> Unit,
-    onSkipMismatch: () -> Unit
+    onSkipMismatch: () -> Unit,
+    onSkipScan: () -> Unit
 ) {
     HelperCard(cornerRadius = HelperDefaults.SectionCornerRadius) {
         Column(
@@ -6249,6 +6262,14 @@ private fun FastModeCard(
                     active = isRateLimitWait(progress.detail),
                     onSkipWait = onSkipWait
                 )
+                if (isScanStatus(progress.detail)) {
+                    HelperButton(
+                        text = "Skip scan & hand off",
+                        onClick = onSkipScan,
+                        icon = Icons.Outlined.Shield,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             } else if (!progress.done) {
                 HelperOutlinedButton(
                     text = "Cancel",
@@ -6351,7 +6372,8 @@ private fun scanPhaseSplit(status: String): Pair<String, String> {
 private fun DownloadingState(
     state: UiState.Downloading,
     onCancel: () -> Unit,
-    onSkipWait: () -> Unit
+    onSkipWait: () -> Unit,
+    onSkipScan: () -> Unit
 ) {
     HelperCard {
         Column(
@@ -6403,6 +6425,19 @@ private fun DownloadingState(
                 active = isRateLimitWait(statusText),
                 onSkipWait = onSkipWait
             )
+            if (isScan) {
+                HelperButton(
+                    text = "Skip scan & hand off",
+                    onClick = onSkipScan,
+                    icon = Icons.Outlined.Shield,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "Hand the downloaded file to Morphe now without waiting for VirusTotal.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
