@@ -881,9 +881,8 @@ internal object VirusTotalScanner {
         var lastStatus = ""
         repeat(maxAttempts) { attempt ->
             if (checkCancelled()) throw CancellationException("Scan cancelled")
-            // Pace each poll through the shared limiter too: analysis polls
-            // count against the same 4/min quota.
-            pace(onProgress, checkCancelled)
+            // Analysis polls (GET /analyses/{id}) are read-only status checks
+            // and do NOT consume VT's 4/min quota — no pace() here.
             Thread.sleep(3000)
 
             val request = Request.Builder()
