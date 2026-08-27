@@ -229,6 +229,12 @@ internal class DownloadService : Service() {
     // to route to a hand-off instead of a plain cancel.
     @Volatile private var skipScanRequested = false
     @Volatile private var skipScanFile: File? = null
+    // True once the user cancels the whole request while a scan is running.
+    // The scanner polls this via checkCancelled. NOTE: it must NOT be derived
+    // from downloadJob.isActive — in ASK mode the scan runs in a fresh
+    // serviceScope.launch after the download job has already completed, so
+    // downloadJob.isActive is false and the scan would abort instantly.
+    @Volatile private var scanAbortRequested = false
     private var lastPostedPercent = -1
     private var lastPostedTime = 0L
     private var lastProgressBytes = 0L
@@ -393,6 +399,7 @@ internal class DownloadService : Service() {
         lastScanVerdict = null
         skipScanRequested = false
         skipScanFile = null
+        scanAbortRequested = false
         lastPostedPercent = -1
         lastPostedTime = 0L
         lastProgressBytes = 0L
@@ -574,14 +581,19 @@ internal class DownloadService : Service() {
         val scanStartNanos = System.nanoTime()
         var lastEtaPercent = 0
         var lastEtaNanos = scanStartNanos
-        val scanResult = VirusTotalScanner.scanDownloadedFile(
-            file,
-            apiKey,
-            onProgress = { status ->
-                scanStatus = status
-                DownloadJobManager.emit(
-                    DownloadJobManager.Event.Scanning(candidate, status)
-                )
+        // In ASK mode this runs in a fresh serviceScope.launch (the download
+        // job already completed), so a cancel/skip CancellationException would
+        // otherwise be swallowed by the coroutine and leave the service stuck
+        // with a stale notification. Handle it here for BOTH modes.
+        val scanResult = try {
+            VirusTotalScanner.scanDownloadedFile(
+                file,
+                apiKey,
+                onProgress = { status ->
+                    scanStatus = status
+                    DownloadJobManager.emit(
+                        DownloadJobManager.Event.Scanning(candidate, status)
+                    )
             },
             onPercent = { pct ->
                 run {
@@ -619,10 +631,32 @@ internal class DownloadService : Service() {
             // Abort promptly when the user cancels OR skips the scan: the
             // scanner checks this between per-APK lookups and during rate-limit
             // pauses, so a cancel lands within a second instead of after a 12s
-            // sleep. [downloadJob] is this job; cancel() flips its isActive false;
-            // ACTION_SCAN_SKIP flips skipScanRequested.
-            checkCancelled = { downloadJob?.isActive != true || skipScanRequested }
-        )
+            // sleep. ACTION_CANCEL flips scanAbortRequested; ACTION_SCAN_SKIP
+            // flips skipScanRequested. Never derive this from downloadJob.
+            // isActive — in ASK mode the scan runs in a fresh serviceScope
+            // .launch after the download job completed, so downloadJob.isActive
+            // is false and the scan would abort on its very first check.
+            checkCancelled = { scanAbortRequested || skipScanRequested }
+            )
+        } catch (error: CancellationException) {
+            if (skipScanRequested) {
+                // User opted out of the scan mid-flight: hand off the
+                // already-downloaded file without a verdict.
+                val f = skipScanFile
+                skipScanRequested = false
+                skipScanFile = null
+                lastScanVerdict = skippedVerdict()
+                if (f != null) {
+                    handleSuccess(job, f)
+                } else {
+                    handleCancelled(job)
+                }
+            } else {
+                // Plain cancel: stop the whole request.
+                handleCancelled(job)
+            }
+            return
+        }
 
         DownloadJobManager.emit(
             DownloadJobManager.Event.ScanComplete(candidate, scanResult)
@@ -699,6 +733,10 @@ internal class DownloadService : Service() {
     private fun cancelDownload() {
         downloader.cancelCurrent()
         downloadJob?.cancel()
+        // Flag any in-flight scan (ALWAYS or ASK mode) so its next
+        // checkCancelled() poll aborts it even though the scan may be running
+        // in a different coroutine than downloadJob.
+        scanAbortRequested = true
     }
 
     private suspend fun downloadSingleFile(
