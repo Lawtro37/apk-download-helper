@@ -3150,7 +3150,8 @@ private fun HelperSettingsCard(
                 )
                 DropdownMenu(
                     expanded = defaultSourceExpanded,
-                    onDismissRequest = { defaultSourceExpanded = false }
+                    onDismissRequest = { defaultSourceExpanded = false },
+                    modifier = Modifier.fillMaxWidth(0.85f)
                 ) {
                     DropdownMenuItem(
                         text = { Text("Automatic (first enabled source)") },
@@ -3173,35 +3174,26 @@ private fun HelperSettingsCard(
                             defaultSourceExpanded = false
                         }
                     )
-                    DownloadSource.entries
-                        .filter {
+                    sourceCategories.forEach { (title, catSources) ->
+                        val visibleSources = catSources.filter { src ->
                             val disabled = settings.disabledSources
-                            it !in disabled ||
-                                (disabled.size >= DownloadSource.entries.size && it == DownloadSource.PLAY)
+                            src !in disabled ||
+                                (disabled.size >= DownloadSource.entries.size && src == DownloadSource.PLAY)
                         }
-                        .forEach { source ->
-                            DropdownMenuItem(
-                                text = { Text(source.label) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Star,
-                                        contentDescription = null
-                                    )
-                                },
-                                trailingIcon = {
-                                    if (settings.preferredSource == source) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Check,
-                                            contentDescription = null
-                                        )
+                        if (visibleSources.isNotEmpty()) {
+                            SourceMenuHeader(title)
+                            visibleSources.forEach { src ->
+                                SourceMenuItem(
+                                    source = src,
+                                    selected = settings.preferredSource == src,
+                                    onClick = {
+                                        onSettingsChange(settings.copy(preferredSource = src))
+                                        defaultSourceExpanded = false
                                     }
-                                },
-                                onClick = {
-                                    onSettingsChange(settings.copy(preferredSource = source))
-                                    defaultSourceExpanded = false
-                                }
-                            )
+                                )
+                            }
                         }
+                    }
                 }
             }
             DownloadSource.entries.forEach { source ->
@@ -4714,25 +4706,40 @@ private fun SourcePickerFlow(
                         " a real browser opens and any download it produces is captured back."
                 )
             }
-            AnimatedExpand(visible = sourcesExpanded) {
-                SourceGrid(
-                    groups = groups,
-                    selectedIndex = pagerState.currentPage,
-                    onSelect = { index ->
-                        scope.launch {
-                            // Slide for adjacent sources (feels like a swipe), but jump
-                            // straight to distant ones instead of dragging the pager
-                            // through every source in between.
-                            if (abs(index - pagerState.currentPage) <= 1) {
-                                pagerState.animateScrollToPage(index)
-                            } else {
-                                pagerState.scrollToPage(index)
+            Box {
+                DropdownMenu(
+                    expanded = sourcesExpanded,
+                    onDismissRequest = { sourcesExpanded = false },
+                    modifier = Modifier.fillMaxWidth(0.85f)
+                ) {
+                    sourceCategories.forEach { (title, catSources) ->
+                        val visibleSources = catSources.filter { src ->
+                            groups.any { it.source == src }
+                        }
+                        if (visibleSources.isNotEmpty()) {
+                            SourceMenuHeader(title)
+                            visibleSources.forEach { src ->
+                                val index = groups.indexOfFirst { it.source == src }
+                                if (index >= 0) {
+                                    SourceMenuItem(
+                                        source = src,
+                                        selected = index == pagerState.currentPage,
+                                        onClick = {
+                                            scope.launch {
+                                                if (abs(index - pagerState.currentPage) <= 1) {
+                                                    pagerState.animateScrollToPage(index)
+                                                } else {
+                                                    pagerState.scrollToPage(index)
+                                                }
+                                            }
+                                            sourcesExpanded = false
+                                        }
+                                    )
+                                }
                             }
                         }
-                        // Keep the page clean: collapse the grid after picking.
-                        sourcesExpanded = false
                     }
-                )
+                }
             }
         }
 
@@ -4915,6 +4922,42 @@ private fun SourceGrid(
             }
         }
     }
+}
+
+/** Reusable dropdown item: source brand icon + label + optional check. */
+@Composable
+private fun SourceMenuItem(
+    source: DownloadSource,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = { Text(source.label) },
+        leadingIcon = { SourceAvatar(source = source, size = 24.dp) },
+        trailingIcon = {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Outlined.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        onClick = onClick
+    )
+}
+
+/** Section header inside a dropdown menu (Official / Trusted mirrors / Other). */
+@Composable
+private fun SourceMenuHeader(title: String) {
+    Text(
+        text = title,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 // Tracks the active dark/light and Material You states (themeMode-aware) so
