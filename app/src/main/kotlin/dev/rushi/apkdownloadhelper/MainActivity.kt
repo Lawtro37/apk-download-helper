@@ -4807,6 +4807,31 @@ private fun AppSourceCard(
                     tint = colors.onSurfaceVariant
                 )
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall)
+            ) {
+                source.addUrl?.takeIf { it.isNotBlank() }?.let { addUrl ->
+                    SourceActionButton(
+                        text = "Add to Morphe",
+                        icon = Icons.Outlined.Add,
+                        outlined = false,
+                        onClick = { onAddToMorphe(addUrl) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                source.webUrl?.takeIf { it.isNotBlank() }?.let { webUrl ->
+                    SourceActionButton(
+                        text = "Open repo",
+                        icon = Icons.Outlined.OpenInNew,
+                        outlined = true,
+                        onClick = { onOpenUrl(webUrl) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
             AnimatedExpand(visible = expanded) {
                 Column(
                     modifier = Modifier.padding(horizontal = 12.dp),
@@ -4873,31 +4898,6 @@ private fun AppSourceCard(
                             }
                         }
                     }
-                }
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall)
-            ) {
-                source.addUrl?.takeIf { it.isNotBlank() }?.let { addUrl ->
-                    SourceActionButton(
-                        text = "Add to Morphe",
-                        icon = Icons.Outlined.Add,
-                        outlined = false,
-                        onClick = { onAddToMorphe(addUrl) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                source.webUrl?.takeIf { it.isNotBlank() }?.let { webUrl ->
-                    SourceActionButton(
-                        text = "Open repo",
-                        icon = Icons.Outlined.OpenInNew,
-                        outlined = true,
-                        onClick = { onOpenUrl(webUrl) },
-                        modifier = Modifier.weight(1f)
-                    )
                 }
             }
         }
