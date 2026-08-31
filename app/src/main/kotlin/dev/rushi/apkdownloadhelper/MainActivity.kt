@@ -4134,7 +4134,7 @@ private enum class AppSort(val label: String, val icon: ImageVector, val rotatio
     AZ("A–Z", Icons.Outlined.SortByAlpha),
     // Same glyph flipped 180° so it reads descending (mirror of A–Z).
     ZA("Z–A", Icons.Outlined.SortByAlpha, 180f),
-    Patches("Patches", Icons.Outlined.Extension)
+    Sources("Sources", Icons.Outlined.Extension)
 }
 
 /** Compact icon+label pill used for the archive tabs and sort options. */
@@ -4437,7 +4437,7 @@ private fun AppBrowserScreen(
                             when (sort) {
                                 AppSort.AZ -> apps.sortedBy { it.name.lowercase(Locale.US) }
                                 AppSort.ZA -> apps.sortedByDescending { it.name.lowercase(Locale.US) }
-                                AppSort.Patches -> apps.sortedByDescending { it.patchCount }
+                                AppSort.Sources -> apps.sortedByDescending { it.sourceCount }
                             }
                         }
                     if (filtered.isEmpty()) {
