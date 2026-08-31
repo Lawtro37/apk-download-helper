@@ -29,6 +29,10 @@ internal data class ArchiveApp(
 ) {
     val patchCount: Int
         get() = patches.size
+
+    /** Number of distinct source repos/bundles offering patches for this app. */
+    val sourceCount: Int
+        get() = sources.size
 }
 
 internal data class ArchivePatch(

@@ -4531,12 +4531,12 @@ private fun AppBrowserRow(
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = app.patchCount.toString(),
+                    text = app.sourceCount.toString(),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = if (app.patchCount == 1) "patch" else "patches",
+                    text = if (app.sourceCount == 1) "source" else "sources",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -4693,8 +4693,8 @@ private fun AppDetailView(
                         )
                         Text(
                             text = buildString {
-                                append("${app.patchCount} ")
-                                append(if (app.patchCount == 1) "patch" else "patches")
+                                append("${app.sourceCount} ")
+                                append(if (app.sourceCount == 1) "source" else "sources")
                                 if (app.versions.isNotEmpty()) {
                                     append(" · ${app.versions.size} ")
                                     append(if (app.versions.size == 1) "version" else "versions")
