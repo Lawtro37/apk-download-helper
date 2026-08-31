@@ -21,19 +21,34 @@ internal fun interface SourceTextFetcher {
 internal class HttpRateLimitedException(message: String) : Exception(message)
 
 /**
+ * Thrown when a source answers a probe with a Cloudflare legal-interstitial /
+ * challenge page instead of the real content. Callers surface it as a distinct
+ * "blocked " state rather than silently reading the page as "no version found".
+ */
+internal class SourceChallengeException(message: String) : Exception(message)
+
+/**
  * Real-network fetcher shared by all parsers. Enforces a minimum gap between
  * requests so source resolution never bursts (the main cause of site rate
  * limits), and surfaces HTTP 429 as [HttpRateLimitedException].
  */
 internal class OkHttpSourceTextFetcher(
     private val client: OkHttpClient,
-    private val minRequestGapMillis: Long = 800L
+    private val minRequestGapMillis: Long = 800L,
+    /**
+     * Per-host minimum gaps, overriding [minRequestGapMillis] for sites that
+     * are stricter than the app's general default. APKMirror declares
+     * `Crawl-delay: 3` in its robots.txt and answers 429 to denser runs, so it
+     * must stay below ~1 request every 2-3s instead of the flat 800ms the
+     * other sources tolerate.
+     */
+    private val hostGapsMillis: Map<String, Long> = emptyMap()
 ) : SourceTextFetcher {
     private val paceGate = Any()
     private var nextAllowedAtNanos = 0L
 
     override fun fetchText(url: String, referer: String?): String {
-        pace()
+        pace(gapMillisFor(url))
         val builder = Request.Builder().url(url)
         referer?.let { builder.header("Referer", it) }
         client.newCall(builder.build()).execute().use { response ->
@@ -47,8 +62,13 @@ internal class OkHttpSourceTextFetcher(
         }
     }
 
+    private fun gapMillisFor(url: String): Long {
+        val host = runCatching { java.net.URI(url).host }?.getOrNull() ?: return minRequestGapMillis
+        return hostGapsMillis[host.lowercase(Locale.US)] ?: minRequestGapMillis
+    }
+
     /** Enforce a minimum gap between request starts so fetches never burst. */
-    private fun pace() {
+    private fun pace(gapMillis: Long) {
         synchronized(paceGate) {
             val now = System.nanoTime()
             val waitMillis = (nextAllowedAtNanos - now) / 1_000_000
@@ -59,7 +79,7 @@ internal class OkHttpSourceTextFetcher(
                     Thread.currentThread().interrupt()
                 }
             }
-            nextAllowedAtNanos = System.nanoTime() + minRequestGapMillis * 1_000_000
+            nextAllowedAtNanos = System.nanoTime() + gapMillis * 1_000_000
         }
     }
 }

@@ -243,6 +243,11 @@ private val APK_PICKER_MIME_TYPES = arrayOf(
 )
 
 class MainActivity : ComponentActivity() {
+    /** APKMirror declares `Crawl-delay: 3`; stay below ~1 request/2.5s. */
+    companion object {
+        const val APKMIRROR_REQUEST_GAP_MS = 2500L
+    }
+
     private val browserUserAgent =
         "Mozilla/5.0 (Linux; Android ${Build.VERSION.RELEASE}; ${Build.MODEL}) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36"
@@ -290,7 +295,12 @@ class MainActivity : ComponentActivity() {
     private val parsers: Map<DownloadSource, ApkSourceParser> by lazy {
         val playHttpClient = PlayHttpClient(Cache(File(cacheDir, "play-cache"), 64L * 1024L * 1024L))
         val parserContext = SourceParserContext(
-            fetcher = OkHttpSourceTextFetcher(client),
+            fetcher = OkHttpSourceTextFetcher(
+                client,
+                // APKMirror declares `Crawl-delay: 3` and answers 429 to denser
+                // probe runs, so give it a slower pace than the app-wide default.
+                hostGapsMillis = mapOf("www.apkmirror.com" to APKMIRROR_REQUEST_GAP_MS)
+            ),
             apkPureApi = apkPureApi,
             aptoideApi = aptoideApi,
             playHttpClient = playHttpClient,
@@ -7488,7 +7498,13 @@ internal data class CandidateDownloadFile(
     val fileName: String,
     val size: Long? = null,
     val referer: String? = null,
-    val cookieHeader: String? = null
+    val cookieHeader: String? = null,
+    // The SHA-256 the source publishes for the file, when it does. When set,
+    // the downloaded bytes are checked against it before handoff, catching
+    // corrupted or wrong builds outright instead of only a package/version
+    // mismatch. (Sources that publish it: APKMirror variant page, Uptodown
+    // download page.)
+    val expectedSha256: String? = null
 )
 
 private data class BrowserDownloadCapture(

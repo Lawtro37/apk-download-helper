@@ -394,6 +394,9 @@ internal class UptodownParser(private val ctx: SourceParserContext) : ApkSourceP
         val directUrl = uptodownDownloadUrlFromPage(tokenDoc) ?: return null
         val variantLabel = variant.displayLabel()
         val variantFileSuffix = variantLabel.variantFileSuffix()
+        // Uptodown's download page publishes the file's SHA-256 in its info
+        // table. When present it verifies the downloaded bytes before handoff.
+        val expectedSha256 = uptodownSha256FromPage(tokenDoc)
 
         return DownloadCandidate(
             source = DownloadSource.UPTODOWN,
@@ -413,10 +416,20 @@ internal class UptodownParser(private val ctx: SourceParserContext) : ApkSourceP
                     url = directUrl,
                     fileName = "${request.packageName}-${versionName ?: option.name.lowercase(Locale.US)}-uptodown$variantFileSuffix.$fileKind"
                         .sanitizeFileName(),
-                    referer = versionPageUrl
+                    referer = versionPageUrl,
+                    expectedSha256 = expectedSha256
                 )
             )
         )
+    }
+
+    /** The SHA-256 row in Uptodown's file info table, if the page publishes one. */
+    private fun uptodownSha256FromPage(doc: Document): String? {
+        val hash = parseInfoTableValue(doc, "SHA256")
+            ?.trim()
+            ?.takeIf { it.length == 64 }
+        Log.d(TAG, "Uptodown download-page SHA-256 extracted: ${hash ?: "none"}")
+        return hash
     }
 
     private fun uptodownSelectableVariants(

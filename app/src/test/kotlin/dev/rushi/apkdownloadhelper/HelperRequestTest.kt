@@ -224,4 +224,33 @@ class HelperRequestTest {
     fun fileKindFromUrl_noExtensionDefaultsToApk() {
         assertEquals("apk", fileKindFromUrl("https://example.com/download?id=1"))
     }
+
+    @Test
+    fun fileKindFromUrl_apkPurePathSegmentXapk() {
+        // APKPure's download link carries the bundle marker as a path segment,
+        // not in the file name (which is the package). Must be XAPK, not APK.
+        val url = "https://d.apkpure.com/b/XAPK/com.proxyman.proxymanandroid?versionCode=54"
+        assertEquals("xapk", fileKindFromUrl(url))
+    }
+
+    @Test
+    fun fileKindFromUrl_packageOnlyPathStillDefaultsToApk() {
+        // No bundle marker anywhere: stays a plain APK.
+        assertEquals("apk", fileKindFromUrl("https://d.apkpure.com/b/APK/com.example.app?versionCode=5"))
+    }
+
+    @Test
+    fun sha256HexOf_matchesExpectedDigest() {
+        val file = java.io.File.createTempFile("helper-sha", ".apk")
+        try {
+            file.writeText("hello world")
+            // SHA-256 of "hello world" (no trailing newline via writeText? writeText adds none).
+            assertEquals(
+                "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                sha256HexOf(file)
+            )
+        } finally {
+            file.delete()
+        }
+    }
 }

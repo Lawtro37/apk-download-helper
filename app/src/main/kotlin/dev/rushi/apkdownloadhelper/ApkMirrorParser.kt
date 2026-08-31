@@ -471,7 +471,11 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
         option: CandidateOption
     ): List<DownloadCandidate> {
         val releaseDoc = fetchDocument(releaseUrl)
-        if (releaseDoc.isCloudflareChallenge()) return emptyList()
+        if (releaseDoc.isCloudflareChallenge()) {
+            throw SourceChallengeException(
+                "APKMirror showed a Cloudflare browser-verification page instead of the release."
+            )
+        }
 
         val variants = apkMirrorVariants(releaseDoc)
         val selectedVariants = if (variants.isEmpty()) {
@@ -507,12 +511,20 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
         } else {
             fetchDocument(variantPageUrl, referer = releaseUrl)
         }
-        if (variantDoc.isCloudflareChallenge()) return null
+        if (variantDoc.isCloudflareChallenge()) {
+            throw SourceChallengeException(
+                "APKMirror showed a Cloudflare browser-verification page instead of the variant."
+            )
+        }
 
         val isBundle = variant?.isBundle ?: apkMirrorPageLooksBundle(variantDoc)
         val downloadButtonUrl = apkMirrorDownloadButtonUrl(variantDoc, isBundle) ?: return null
         val downloadDoc = fetchDocument(downloadButtonUrl, referer = variantPageUrl)
-        if (downloadDoc.isCloudflareChallenge()) return null
+        if (downloadDoc.isCloudflareChallenge()) {
+            throw SourceChallengeException(
+                "APKMirror showed a Cloudflare browser-verification page instead of the download page."
+            )
+        }
 
         val finalUrl = apkMirrorFinalDownloadUrl(downloadDoc) ?: return null
         val resolvedVersion = versionName
@@ -520,6 +532,10 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
         val fileKind = variant?.fileKind ?: if (isBundle) "apkm" else fileKindFromUrl(finalUrl)
         val variantLabel = variant?.displayLabel()
         val variantFileSuffix = variantLabel.variantFileSuffix()
+        // APKMirror publishes the file's SHA-256 in the variant page's safe-
+        // download modal, under the "APK file hashes" block. Single APKs carry
+        // it; bundles don't (there is no single file to hash).
+        val expectedSha256 = if (isBundle) null else apkMirrorVariantFileSha256(variantDoc)
 
         return DownloadCandidate(
             source = DownloadSource.APK_MIRROR,
@@ -539,10 +555,36 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
                     url = finalUrl,
                     fileName = "${request.packageName}-${resolvedVersion ?: option.name.lowercase(Locale.US)}-apkmirror$variantFileSuffix.$fileKind"
                         .sanitizeFileName(),
-                    referer = downloadButtonUrl
+                    referer = downloadButtonUrl,
+                    expectedSha256 = expectedSha256
                 )
             )
         )
+    }
+
+    /**
+     * The file's SHA-256 from the variant page's safe-download modal.
+     *
+     * The modal lists hashes under two labels: "APK file hashes" (the file's
+     * MD5/SHA-1/SHA-256) and "APK certificate fingerprints" (the signer's
+     * SHA-1/SHA-256). The file hash is the SHA-256 immediately following the
+     * "APK file hashes" label, not the page's first SHA-256 (which would be
+     * the certificate's).
+     */
+    private fun apkMirrorVariantFileSha256(doc: Document): String? {
+        val modal = doc.selectFirst("#safeDownload .modal-body")
+            ?: doc.selectFirst(".safeDownload .modal-body")
+            ?: return null
+        val hashesBlock = modal.select("div")
+            .firstOrNull { it.text().contains("APK file hashes", ignoreCase = true) }
+        val blockText = hashesBlock?.text() ?: modal.text()
+        val fileSection = blockText.substringAfter("APK file hashes", "")
+            .substringBefore("APK certificate fingerprints")
+        val hash = Regex("[0-9a-fA-F]{64}")
+            .find(fileSection)
+            ?.value
+        Log.d(TAG, "APKMirror variant file SHA-256 extracted: ${hash ?: "none"}")
+        return hash
     }
 
     private fun apkMirrorReleaseFallbackCandidate(

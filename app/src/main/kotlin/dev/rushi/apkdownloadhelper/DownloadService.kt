@@ -229,6 +229,11 @@ internal class DownloadService : Service() {
     // to route to a hand-off instead of a plain cancel.
     @Volatile private var skipScanRequested = false
     @Volatile private var skipScanFile: File? = null
+    // True when the downloaded file's bytes matched the SHA-256 the source
+    // published for it (APKMirror single APK, Uptodown). Surfaced in the
+    // download status so the user sees integrity was verified, since the check
+    // is otherwise silent on success.
+    @Volatile private var lastShaVerified = false
     // True once the user cancels the whole request while a scan is running.
     // The scanner polls this via checkCancelled. NOTE: it must NOT be derived
     // from downloadJob.isActive — in ASK mode the scan runs in a fresh
@@ -399,6 +404,7 @@ internal class DownloadService : Service() {
         lastScanVerdict = null
         skipScanRequested = false
         skipScanFile = null
+        lastShaVerified = false
         scanAbortRequested = false
         lastPostedPercent = -1
         lastPostedTime = 0L
@@ -508,7 +514,10 @@ internal class DownloadService : Service() {
         } else {
             downloadSplitArchive(candidate, files, downloadsDir)
         }
-        emitPostDownloadStatus(candidate, "Validating downloaded file…")
+        emitPostDownloadStatus(
+            candidate,
+            if (lastShaVerified) "SHA-256 verified \u2713 \u00b7 validating file…" else "Validating downloaded file…"
+        )
         validateDownloadedArtifact(
             this,
             job.request,
@@ -760,7 +769,34 @@ internal class DownloadService : Service() {
             stagedFile.copyTo(outputFile, overwrite = true)
             stagedFile.delete()
         }
+        verifyExpectedSha256(candidate, downloadFile, outputFile)
         return outputFile
+    }
+
+    /**
+     * Check the finished file against the SHA-256 the source published for it.
+     * When the expected value is present and the bytes don't match, delete the
+     * file and fail with a manual-mode hint rather than hand off a corrupted or
+     * wrong build. (Only Uptodown and APKMirror set [CandidateDownloadFile.expectedSha256].)
+     */
+    private fun verifyExpectedSha256(
+        candidate: DownloadCandidate,
+        downloadFile: CandidateDownloadFile,
+        outputFile: File
+    ) {
+        val expected = downloadFile.expectedSha256?.normalizeHex() ?: return
+        val actual = sha256HexOf(outputFile) ?: return
+        if (actual.equals(expected, ignoreCase = true)) {
+            Log.i(TAG, "SHA-256 verified for ${outputFile.name} expected ${expected}")
+            lastShaVerified = true
+            return
+        }
+        outputFile.delete()
+        Log.e(TAG, "SHA-256 check FAILED for ${outputFile.name}: expected $expected, got $actual")
+        throw IllegalStateException(
+            "Downloaded file failed its SHA-256 check (expected $expected, got $actual). " +
+                "The file may have been modified in transit. Try the source's Manual mode."
+        )
     }
 
     private suspend fun downloadSplitArchive(
@@ -1053,6 +1089,18 @@ internal class VersionCodeMismatchException(
     val file: File,
     val foundVersionCode: Long?
 ) : Exception("Version code: requested a different build, found $foundVersionCode")
+
+/** Strip whitespace and any common separators/prefix from a published hex digest. */
+private fun String.normalizeHex(): String? =
+    lowercase(Locale.US)
+        .filter { it.isDigit() || it in 'a'..'f' }
+        .takeIf { it.length == 64 }
+
+internal fun sha256HexOf(file: File): String? = runCatching {
+    java.security.MessageDigest.getInstance("SHA-256")
+        .digest(file.inputStream().use { it.readBytes() })
+        .joinToString("") { "%02x".format(it) }
+}.getOrNull()
 
 internal fun validateDownloadedArtifact(
     context: Context,
