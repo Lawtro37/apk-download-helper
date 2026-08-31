@@ -34,14 +34,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -59,6 +65,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -68,6 +77,13 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.SortByAlpha
+import androidx.compose.material.icons.outlined.ViewList
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -96,6 +112,7 @@ import androidx.compose.material.icons.outlined.SdStorage
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SignalCellularAlt
+import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material.icons.outlined.RadioButtonChecked
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Share
@@ -136,6 +153,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -157,7 +175,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -172,6 +192,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -2508,6 +2530,7 @@ private fun HelperScreen(
     onSkipScan: () -> Unit
 ) {
     var showSettings by remember { mutableStateOf(false) }
+    var showAppBrowser by remember { mutableStateOf(false) }
     var pendingFilePick by remember { mutableStateOf<DownloadCandidate?>(null) }
     var primaryAction by remember { mutableStateOf<PrimaryAction?>(null) }
     val context = LocalContext.current
@@ -2524,8 +2547,9 @@ private fun HelperScreen(
         pendingFilePick = candidate
         filePickerLauncher.launch(APK_PICKER_MIME_TYPES)
     }
-    BackHandler(enabled = showSettings) {
+    BackHandler(enabled = showSettings || showAppBrowser) {
         showSettings = false
+        showAppBrowser = false
     }
 
     val flowVisible = request != null &&
@@ -2538,6 +2562,11 @@ private fun HelperScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
+        if (showAppBrowser) {
+            AppBrowserScreen(onBack = { showAppBrowser = false })
+            return@Surface
+        }
+
         if (showSettings) {
             HelperSettingsScreen(
                 settings = settings,
@@ -2641,7 +2670,12 @@ private fun HelperScreen(
             }
 
             if (request == null) {
-                item { EmptyLaunchState(onOpenMorphe) }
+                item {
+                    EmptyLaunchState(
+                        onOpenMorphe = onOpenMorphe,
+                        onFindApps = { showAppBrowser = true }
+                    )
+                }
                 return@LazyColumn
             }
 
@@ -4105,7 +4139,10 @@ private fun SourceToggleRow(
 }
 
 @Composable
-private fun EmptyLaunchState(onOpenMorphe: () -> Unit) {
+private fun EmptyLaunchState(
+    onOpenMorphe: () -> Unit,
+    onFindApps: () -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)) {
         InfoCard("Open this helper from Morphe Manager when it asks for an original APK.")
         HelperButton(
@@ -4114,6 +4151,829 @@ private fun EmptyLaunchState(onOpenMorphe: () -> Unit) {
             icon = Icons.Outlined.OpenInNew,
             modifier = Modifier.fillMaxWidth()
         )
+        HelperOutlinedButton(
+            text = "Find New Apps",
+            onClick = onFindApps,
+            icon = Icons.Outlined.Explore,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Which slice of the archive list to show. */
+private enum class AppListTab(val label: String, val icon: ImageVector) {
+    All("All", Icons.Outlined.ViewList),
+    // Icon-only (heart) so the neighbouring labels keep more room.
+    Favourites("", Icons.Outlined.FavoriteBorder),
+    Installed("Installed", Icons.Outlined.CheckCircle),
+    NotInstalled("Not installed", Icons.Outlined.Block)
+}
+
+/** How the archive list is ordered. */
+private enum class AppSort(val label: String, val icon: ImageVector, val rotation: Float = 0f) {
+    AZ("A–Z", Icons.Outlined.SortByAlpha),
+    // Same glyph flipped 180° so it reads descending (mirror of A–Z).
+    ZA("Z–A", Icons.Outlined.SortByAlpha, 180f),
+    Patches("Patches", Icons.Outlined.Extension)
+}
+
+/** Compact icon+label pill used for the archive tabs and sort options. */
+@Composable
+private fun CompactPill(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    iconRotation: Float = 0f
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(50)
+    Surface(
+        modifier = Modifier.clip(shape).clickable(onClick = onClick),
+        shape = shape,
+        color = if (selected) colors.primary.copy(alpha = 0.16f) else sourceCardFill(),
+        contentColor = colors.onSurface,
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) colors.primary else sourceCardBorder()
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label.ifBlank { null },
+                tint = if (selected) colors.primary else colors.onSurfaceVariant,
+                modifier = Modifier
+                    .size(14.dp)
+                    .rotate(iconRotation)
+            )
+            if (label.isNotBlank()) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Persisted favourites for the "Find New Apps" browser. Survives app
+ * launches so a pinned app stays pinned even as the live index grows.
+ */
+private object MorpheFavourites {
+    private const val PREFS = "morphe_favourites"
+    private const val KEY = "packages"
+
+    fun load(context: Context): Set<String> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY, emptySet())
+            .orEmpty()
+
+    /** Toggles [packageName] and returns the new set. */
+    fun toggle(context: Context, packageName: String): Set<String> {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY, emptySet()).orEmpty().toMutableSet()
+        if (!current.add(packageName)) current.remove(packageName)
+        prefs.edit().putStringSet(KEY, current).apply()
+        return current
+    }
+}
+
+/** Sticky disclaimer pinned above the archive list. */
+@Composable
+private fun AppDisclaimerBanner() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.22f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = "Patch index maintained by the community. Use at your own risk. " +
+                    "Community bundles are maintained by their respective authors and are not " +
+                    "individually verified. Morphe and the developer of this app are not " +
+                    "responsible for third-party patches.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+/**
+ * "Find New Apps" browser: fetches the Morphe archive index live on every
+ * open (never cached), offers a searchable list of all patched apps, and a
+ * per-app detail view with its versions, patches, and source repos.
+ */
+@Composable
+private fun AppBrowserScreen(
+    onBack: () -> Unit
+) {
+    var apps by remember { mutableStateOf<List<ArchiveApp>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf<ArchiveApp?>(null) }
+    var loadKey by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableStateOf(AppListTab.All) }
+    var sort by remember { mutableStateOf(AppSort.AZ) }
+    val context = LocalContext.current
+    var favourites by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var installedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(Unit) {
+        favourites = MorpheFavourites.load(context)
+        installedPackages = withContext(Dispatchers.IO) {
+            context.packageManager.getInstalledApplications(0)
+                .mapNotNull { it.packageName.takeIf(String::isNotBlank) }
+                .toSet()
+        }
+    }
+
+    LaunchedEffect(loadKey) {
+        apps = null
+        error = null
+        try {
+            apps = MorpheArchive.fetchApps().sortedBy { it.name.lowercase(Locale.US) }
+        } catch (e: Exception) {
+            error = e.message ?: "Failed to load the app index"
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(
+                horizontal = HelperDefaults.ContentPadding,
+                vertical = HelperDefaults.ContentPadding
+            ),
+        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "Find New Apps",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                val current = selected
+                Text(
+                    text = when {
+                        current != null -> current.name
+                        apps != null -> "${apps!!.size} apps with patches"
+                        else -> "Morphe patch archive"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            HelperHeaderIconButton(
+                icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "Back",
+                onClick = {
+                    if (selected != null) selected = null else onBack()
+                },
+                modifier = Modifier.align(Alignment.CenterStart)
+            )
+        }
+
+        val current = selected
+        if (current != null) {
+            AppDetailView(
+                app = current,
+                onBack = { selected = null },
+                modifier = Modifier.weight(1f)
+            )
+        } else {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                placeholder = {
+                    Text(
+                        "Search apps or packages",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = null
+                    )
+                }
+            )
+
+            val loaded = apps
+            when {
+                error != null -> {
+                    InfoCard(error!!)
+                    HelperButton(
+                        text = "Retry",
+                        onClick = { loadKey++ },
+                        icon = Icons.Outlined.Refresh,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                loaded == null -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(HelperDefaults.ContentPaddingSmall))
+                        Text(
+                            "Loading app index…",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                else -> {
+                    AppDisclaimerBanner()
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AppListTab.entries.forEach { t ->
+                            CompactPill(
+                                label = t.label,
+                                icon = t.icon,
+                                selected = tab == t,
+                                onClick = { tab = t }
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AppSort.entries.forEach { s ->
+                            CompactPill(
+                                label = s.label,
+                                icon = s.icon,
+                                selected = sort == s,
+                                onClick = { sort = s },
+                                iconRotation = s.rotation
+                            )
+                        }
+                    }
+                    val filtered = loaded
+                        .filter { app ->
+                            query.isBlank() ||
+                                app.name.contains(query, ignoreCase = true) ||
+                                app.packageName.contains(query, ignoreCase = true)
+                        }
+                        .filter { app ->
+                            when (tab) {
+                                AppListTab.All -> true
+                                AppListTab.Favourites -> app.packageName in favourites
+                                AppListTab.Installed -> app.packageName in installedPackages
+                                AppListTab.NotInstalled -> app.packageName !in installedPackages
+                            }
+                        }
+                        .let { apps ->
+                            when (sort) {
+                                AppSort.AZ -> apps.sortedBy { it.name.lowercase(Locale.US) }
+                                AppSort.ZA -> apps.sortedByDescending { it.name.lowercase(Locale.US) }
+                                AppSort.Patches -> apps.sortedByDescending { it.patchCount }
+                            }
+                        }
+                    if (filtered.isEmpty()) {
+                        InfoCard(
+                            when (tab) {
+                                AppListTab.Favourites ->
+                                    "No favourites yet. Tap the heart on any app to pin it here."
+                                AppListTab.Installed -> "No patched apps in the index are installed."
+                                AppListTab.NotInstalled ->
+                                    "Every app in the index is installed on this device."
+                                AppListTab.All -> "No apps match \"$query\"."
+                            }
+                        )
+                    } else {
+                        val listState = rememberLazyListState()
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                            ) {
+                                items(filtered, key = { it.packageName }) { app ->
+                                    AppBrowserRow(
+                                        app = app,
+                                        favourite = app.packageName in favourites,
+                                        onToggleFavourite = {
+                                            favourites = MorpheFavourites.toggle(context, app.packageName)
+                                        },
+                                        onClick = { selected = app }
+                                    )
+                                }
+                            }
+                            LazyListScrollbar(
+                                listState = listState,
+                                modifier = Modifier.fillMaxHeight()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppBrowserRow(
+    app: ArchiveApp,
+    favourite: Boolean,
+    onToggleFavourite: () -> Unit,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
+        color = sourceCardFill(),
+        border = BorderStroke(1.dp, sourceCardBorder())
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppAvatar(
+                packageName = app.packageName,
+                initial = app.name.firstOrNull()?.uppercaseChar() ?: '?'
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = app.name,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = app.packageName,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = app.patchCount.toString(),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = if (app.patchCount == 1) "patch" else "patches",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Icon(
+                imageVector = if (favourite) {
+                    Icons.Filled.Favorite
+                } else {
+                    Icons.Outlined.FavoriteBorder
+                },
+                contentDescription = if (favourite) "Remove from favourites" else "Add to favourites",
+                tint = if (favourite) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .clickable(onClick = onToggleFavourite)
+                    .padding(6.dp)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * Small async image loader for source avatars: fetches the URL off the main
+ * thread and falls back to a letter tile while loading / on failure.
+ */
+@Composable
+private fun AsyncAvatar(
+    url: String?,
+    fallbackText: String,
+    size: Dp = 20.dp,
+    cornerRadius: Dp = 6.dp
+) {
+    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        bitmap = if (url == null) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val request = Request.Builder()
+                        .url(url)
+                        .header(
+                            "User-Agent",
+                            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
+                        )
+                        .build()
+                    MorpheArchive.http.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) return@use null
+                        response.body?.bytes()?.let { bytes ->
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        }?.asImageBitmap()
+                    }
+                }.getOrNull()
+            }
+        }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = null,
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(cornerRadius))
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(cornerRadius))
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = fallbackText,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * Opens a Morphe "add-source" deep link. The manager's intent filter for
+ * https://morphe.software/add-source has no autoVerify, and on Android 12+
+ * unverified https apps are hidden from the implicit resolver (so the browser
+ * would win). Pinning the package restores the direct handoff to Morphe.
+ */
+private fun openAddSource(context: Context, addUrl: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(addUrl))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val manager = MORPHE_MANAGER_PACKAGES.firstOrNull { pkg ->
+        runCatching {
+            context.packageManager.queryIntentActivities(intent.setPackage(pkg), 0).isNotEmpty()
+        }.getOrDefault(false)
+    }
+    if (manager != null) intent.setPackage(manager)
+    runCatching { context.startActivity(intent) }
+}
+
+@Composable
+private fun AppDetailView(
+    app: ArchiveApp,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val openUrl: (String) -> Unit = { url ->
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+    ) {
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
+                color = sourceCardFill(),
+                border = BorderStroke(1.dp, sourceCardBorder())
+            ) {
+                Row(
+                    modifier = Modifier.padding(HelperDefaults.ContentPadding),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AppAvatar(
+                        packageName = app.packageName,
+                        initial = app.name.firstOrNull()?.uppercaseChar() ?: '?'
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = app.name,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = app.packageName,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = buildString {
+                                append("${app.patchCount} ")
+                                append(if (app.patchCount == 1) "patch" else "patches")
+                                if (app.versions.isNotEmpty()) {
+                                    append(" · ${app.versions.size} ")
+                                    append(if (app.versions.size == 1) "version" else "versions")
+                                }
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    // Open the Play Store listing, same as the Play source's
+                    // action, so users can see the official page for the app.
+                    Icon(
+                        imageVector = Icons.Outlined.Storefront,
+                        contentDescription = "Open in Play Store",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                context.openPlayStoreListing(app.packageName, playStoreUrl(app.packageName))
+                            }
+                            .padding(10.dp)
+                    )
+                }
+            }
+        }
+        if (app.versions.isNotEmpty()) {
+            item {
+                SectionTitle("Versions")
+                Text(
+                    text = app.versions.joinToString(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        if (app.sources.isEmpty()) {
+            item { InfoCard("No patch sources listed for this app.") }
+        } else {
+            item {
+                SectionTitle("Sources")
+            }
+            items(app.sources, key = { it.repo }) { source ->
+                AppSourceCard(
+                    source = source,
+                    onOpenUrl = openUrl,
+                    onAddToMorphe = { openAddSource(context, it) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One patch source with its own collapsible patch list (collapsed by default)
+ * so patches are clearly attributed to the repo that ships them. The
+ * Add-to-Morphe / Open-repo actions stay visible whether or not it's expanded.
+ */
+@Composable
+private fun AppSourceCard(
+    source: ArchiveSource,
+    onOpenUrl: (String) -> Unit,
+    onAddToMorphe: (String) -> Unit
+) {
+    var expanded by remember(source.repo) { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
+        color = sourceCardFill(),
+        border = BorderStroke(1.dp, sourceCardBorder())
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AsyncAvatar(
+                    url = MorpheArchive.avatarUrlFor(source),
+                    fallbackText = source.repo.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    size = 28.dp,
+                    cornerRadius = 8.dp
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = source.repo,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${source.patches.size} " +
+                            (if (source.patches.size == 1) "patch" else "patches"),
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = if (expanded) "Collapse patches" else "Expand patches",
+                    tint = colors.onSurfaceVariant
+                )
+            }
+            AnimatedExpand(visible = expanded) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (source.patches.isEmpty()) {
+                        Text(
+                            "No patches listed for this source.",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else {
+                        val longList = source.patches.size > 5
+                        val patchesScroll = rememberScrollState()
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(max = if (longList) 240.dp else Dp.Unspecified)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .then(
+                                            if (longList) Modifier.verticalScroll(patchesScroll) else Modifier
+                                        ),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    source.patches.forEach { patch ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Extension,
+                                                    contentDescription = null,
+                                                    tint = colors.primary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    text = patch.name,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = colors.onSurface,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                            patch.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                                                Text(
+                                                    text = desc,
+                                                    color = colors.onSurfaceVariant,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (longList) {
+                                ScrollStateScrollbar(
+                                    scrollState = patchesScroll,
+                                    modifier = Modifier.fillMaxHeight()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall)
+            ) {
+                source.addUrl?.takeIf { it.isNotBlank() }?.let { addUrl ->
+                    SourceActionButton(
+                        text = "Add to Morphe",
+                        icon = Icons.Outlined.Add,
+                        outlined = false,
+                        onClick = { onAddToMorphe(addUrl) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                source.webUrl?.takeIf { it.isNotBlank() }?.let { webUrl ->
+                    SourceActionButton(
+                        text = "Open repo",
+                        icon = Icons.Outlined.OpenInNew,
+                        outlined = true,
+                        onClick = { onOpenUrl(webUrl) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Compact action button used in the app-detail source cards. */
+@Composable
+private fun SourceActionButton(
+    text: String,
+    icon: ImageVector,
+    outlined: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius)
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(34.dp).clip(shape),
+        shape = shape,
+        color = if (outlined) Color.Transparent else colors.primary.copy(alpha = 0.22f),
+        contentColor = colors.onSurface,
+        border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (outlined) colors.onSurfaceVariant else colors.primary,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -4745,6 +5605,117 @@ private fun AppAvatar(packageName: String, initial: Char) {
                 color = Color.White,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * Grabbable scrollbar for a [LazyColumn], rendered in a narrow gutter beside
+ * the list (never overlapping it). The thumb keeps a minimum grab size and
+ * dragging it maps finger travel proportionally across the whole list, so a
+ * long list stays navigable. Compose 1.10 dropped the built-in scrollbar API
+ * from the foundation artifact, so this is a dependency-free re-implementation.
+ */
+@Composable
+private fun LazyListScrollbar(
+    listState: LazyListState,
+    modifier: Modifier = Modifier
+) {
+    val info = listState.layoutInfo
+    val total = info.totalItemsCount
+    val visible = info.visibleItemsInfo.size
+    if (total <= 0 || visible !in 1 until total) return
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    var dragStartY by remember { mutableFloatStateOf(0f) }
+    var dragStartIndex by remember { mutableIntStateOf(0) }
+    BoxWithConstraints(modifier = modifier.width(20.dp)) {
+        val containerPx = with(density) { maxHeight.toPx() }
+        val fraction = visible.toFloat() / total.toFloat()
+        val thumbPx = (containerPx * fraction).coerceIn(44f, containerPx)
+        val travelPx = (containerPx - thumbPx).coerceAtLeast(0f)
+        val scrollable = (total - visible).coerceAtLeast(1)
+        val pos = listState.firstVisibleItemIndex.toFloat() / scrollable.toFloat()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(total, visible, travelPx, scrollable) {
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            dragStartY = offset.y
+                            dragStartIndex = listState.firstVisibleItemIndex
+                        },
+                        onVerticalDrag = { change, _ ->
+                            val delta = change.position.y - dragStartY
+                            val target = dragStartIndex +
+                                (delta / travelPx * scrollable).toInt()
+                            scope.launch {
+                                listState.scrollToItem(target.coerceIn(0, total - 1))
+                            }
+                        }
+                    )
+                }
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .width(3.dp)
+                    .height(with(density) { thumbPx.toDp() })
+                    .offset { IntOffset(0, (travelPx * pos).toInt()) }
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+            )
+        }
+    }
+}
+
+/** Same grabbable indicator for a plain vertical [ScrollState] (patch lists). */
+@Composable
+private fun ScrollStateScrollbar(
+    scrollState: ScrollState,
+    modifier: Modifier = Modifier
+) {
+    val maxPx = scrollState.maxValue
+    if (maxPx <= 0) return
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    var dragStartY by remember { mutableFloatStateOf(0f) }
+    var dragStartVal by remember { mutableIntStateOf(0) }
+    BoxWithConstraints(modifier = modifier.width(20.dp)) {
+        val containerPx = with(density) { maxHeight.toPx() }
+        val thumbFraction =
+            (containerPx / (containerPx + maxPx.toFloat())).coerceIn(0.1f, 1f)
+        val thumbPx = (containerPx * thumbFraction).coerceIn(44f, containerPx)
+        val travelPx = (containerPx - thumbPx).coerceAtLeast(0f)
+        val pos = scrollState.value.toFloat() / maxPx.toFloat()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(maxPx, travelPx) {
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            dragStartY = offset.y
+                            dragStartVal = scrollState.value
+                        },
+                        onVerticalDrag = { change, _ ->
+                            val delta = change.position.y - dragStartY
+                            val target = dragStartVal + (delta / travelPx * maxPx).toInt()
+                            scope.launch {
+                                scrollState.scrollTo(target.coerceIn(0, maxPx))
+                            }
+                        }
+                    )
+                }
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .width(3.dp)
+                    .height(with(density) { thumbPx.toDp() })
+                    .offset { IntOffset(0, (travelPx * pos).toInt()) }
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
             )
         }
     }
