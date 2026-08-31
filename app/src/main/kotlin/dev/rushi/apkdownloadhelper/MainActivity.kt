@@ -6265,21 +6265,15 @@ private fun FastModeCard(
                     shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                    Box(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Verified,
-                            contentDescription = null,
+                            contentDescription = "SHA-256 verified",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(Modifier.width(3.dp))
-                        Text(
-                            text = "SHA-256 verified",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
