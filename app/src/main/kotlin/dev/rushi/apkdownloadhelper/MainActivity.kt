@@ -101,6 +101,7 @@ import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.outlined.Shield
@@ -1318,7 +1319,8 @@ class MainActivity : ComponentActivity() {
                             sourceLabel = event.candidate.source.label,
                             detail = event.status,
                             percent = pct,
-                            etaMs = event.etaMs
+                            etaMs = event.etaMs,
+                            shaVerified = event.shaVerified
                         )
                     )
                 } else {
@@ -1341,7 +1343,8 @@ class MainActivity : ComponentActivity() {
                     candidate = event.candidate,
                     scanResult = scanResult,
                     detail = detail,
-                    isMalicious = isMalicious
+                    isMalicious = isMalicious,
+                    shaVerified = event.shaVerified
                 )
             }
             is DownloadJobManager.Event.Completed -> {
@@ -2513,7 +2516,8 @@ private fun HelperScreen(
                             detail = state.detail,
                             isMalicious = state.isMalicious,
                             onProceed = onProceedAfterScan,
-                            onCancel = onCancelAfterScan
+                            onCancel = onCancelAfterScan,
+                            shaVerified = state.shaVerified
                         )
                     }
                     item { VirusTotalQuotaCard(virusTotalApiKey) }
@@ -6253,6 +6257,33 @@ private fun FastModeCard(
                 },
                 style = MaterialTheme.typography.bodyMedium
             )
+            // Persist the SHA-256 verification on the card once the file's
+            // bytes matched the source-published hash (not just the transient
+            // post-download status line).
+            if (progress.shaVerified) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Verified,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            text = "SHA-256 verified",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
             if (progress.awaitingDecision) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -6602,7 +6633,9 @@ private fun ScanResultCard(
     isMalicious: Boolean,
     onProceed: () -> Unit,
     onCancel: () -> Unit,
-    readOnly: Boolean = false
+    readOnly: Boolean = false,
+    // True if the downloaded file's bytes matched the source-published SHA-256.
+    shaVerified: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -6676,6 +6709,30 @@ private fun ScanResultCard(
                             },
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                         )
+                    }
+                }
+                if (shaVerified) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Verified,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = "SHA-256 verified",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                     }
                 }
             }
@@ -7607,7 +7664,9 @@ private sealed interface UiState {
         val candidate: DownloadCandidate,
         val scanResult: VirusTotalScanner.ScanResult,
         val detail: String,
-        val isMalicious: Boolean
+        val isMalicious: Boolean,
+        /** True if the downloaded file's bytes matched the source-published SHA-256. */
+        val shaVerified: Boolean = false
     ) : UiState
     data class ScanAsk(val candidate: DownloadCandidate) : UiState
 }
@@ -7642,7 +7701,10 @@ private data class FastModeProgress(
     val result: CandidateResult? = null,
     // Set while Fast Mode waits for the user to accept a version-code mismatch.
     val awaitingDecision: Boolean = false,
-    val mismatchDetail: String? = null
+    val mismatchDetail: String? = null,
+    // True once the downloaded file's bytes matched the source-published SHA-256;
+    // shown persistently on the card (not just the transient post-download status).
+    val shaVerified: Boolean = false
 )
 
 internal object DownloadHelperContract {

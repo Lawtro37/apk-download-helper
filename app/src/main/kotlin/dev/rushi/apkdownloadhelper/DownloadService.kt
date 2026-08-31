@@ -119,12 +119,16 @@ internal object DownloadJobManager {
             val status: String,
             val percent: Int? = null,
             /** Estimated ms until the scan finishes, when knowable (null otherwise). */
-            val etaMs: Long? = null
+            val etaMs: Long? = null,
+            /** True once the downloaded file's bytes matched the source-published SHA-256. */
+            val shaVerified: Boolean = false
         ) : Event
         /** VirusTotal scan completed with results. */
         data class ScanComplete(
             val candidate: DownloadCandidate,
-            val result: VirusTotalScanner.ScanResult
+            val result: VirusTotalScanner.ScanResult,
+            /** True if the downloaded file's bytes matched the source-published SHA-256. */
+            val shaVerified: Boolean = false
         ) : Event
         /** The download finished and the UI must ask whether to scan (ASK mode). */
         data class ScanAsk(val candidate: DownloadCandidate) : Event
@@ -576,7 +580,7 @@ internal class DownloadService : Service() {
         skipScanRequested = false
 
         DownloadJobManager.emit(
-            DownloadJobManager.Event.Scanning(candidate, "Scanning…")
+            DownloadJobManager.Event.Scanning(candidate, "Scanning…", shaVerified = lastShaVerified)
         )
 
         // Capture the latest human status so the percent callback can pair a
@@ -601,7 +605,7 @@ internal class DownloadService : Service() {
                 onProgress = { status ->
                     scanStatus = status
                     DownloadJobManager.emit(
-                        DownloadJobManager.Event.Scanning(candidate, status)
+                        DownloadJobManager.Event.Scanning(candidate, status, shaVerified = lastShaVerified)
                     )
             },
             onPercent = { pct ->
@@ -668,7 +672,7 @@ internal class DownloadService : Service() {
         }
 
         DownloadJobManager.emit(
-            DownloadJobManager.Event.ScanComplete(candidate, scanResult)
+            DownloadJobManager.Event.ScanComplete(candidate, scanResult, shaVerified = lastShaVerified)
         )
 
         // Always pause for the user: show the result and let them proceed or
