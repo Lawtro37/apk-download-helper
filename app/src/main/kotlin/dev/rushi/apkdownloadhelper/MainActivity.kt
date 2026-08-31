@@ -1122,8 +1122,10 @@ class MainActivity : ComponentActivity() {
         if (policy == FastModePolicy.REQUESTED && !request.hasRequestedVersionRequest) return
         fastModeActive = true
         fastModeRunPolicy = if (policy == FastModePolicy.ALWAYS_ASK) FastModePolicy.REQUESTED else policy
+        // Walk whatever the user has enabled globally; sources that cannot
+        // deliver a direct APK (Play/Aurora links, captcha-gated services)
+        // simply resolve to nothing and the walk moves on.
         fastModeQueue = DownloadSource.entries
-            .filter { it !in NON_FAST_MODE_SOURCES }
             .filter { it !in effectiveDisabledSources }
             .toMutableList()
         if (policy == FastModePolicy.ALWAYS_ASK) {
@@ -8891,16 +8893,6 @@ private sealed interface UiState {
 }
 
 private enum class FastModeChoice { USE, NEXT }
-
-// Sources Fast Mode skips: they never offer direct downloads (Aurora/Play
-// return installed/Play versions, the downloader services are captcha-gated).
-private val NON_FAST_MODE_SOURCES = setOf(
-    DownloadSource.AURORA,
-    DownloadSource.PLAY,
-    DownloadSource.EVOZI,
-    DownloadSource.MI9,
-    DownloadSource.APK_DOWNLOADER
-)
 
 private sealed interface FastModeFindResult {
     data class Exact(val candidate: DownloadCandidate) : FastModeFindResult
