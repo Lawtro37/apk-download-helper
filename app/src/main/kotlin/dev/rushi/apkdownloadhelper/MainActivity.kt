@@ -101,6 +101,7 @@ import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.Warning
@@ -336,6 +337,10 @@ class MainActivity : ComponentActivity() {
     private var fastModeActive = false
     private var fastModeQueue: MutableList<DownloadSource>? = null
     private var fastModeDecision: CompletableDeferred<FastModeChoice?>? = null
+    // ALWAYS_ASK: which version the user picked for the current request.
+    private var fastModeVersionDecision: CompletableDeferred<FastModePolicy?>? = null
+    // Effective policy for the current run (chosen interactively for ALWAYS_ASK).
+    private var fastModeRunPolicy = FastModePolicy.REQUESTED
 
     /**
      * The effective disabled-source set.  If the user disables *every*
@@ -431,6 +436,7 @@ class MainActivity : ComponentActivity() {
                         onCancelFastMode = ::cancelFastMode,
                         onUseFastModeMismatch = { fastModeChoose(FastModeChoice.USE) },
                         onSkipFastModeMismatch = { fastModeChoose(FastModeChoice.NEXT) },
+                        onChooseVersion = ::fastModeChooseVersion,
                         onOpenMorphe = ::openMorpheManager,
                         onSolveCaptcha = ::openCaptchaBrowser,
                         onRequestFileTypeChange = ::changeRequestedFileType,
@@ -1080,20 +1086,63 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ---- Fast Mode: auto-find the exact requested version and return it ----
+    // ---- Fast Mode: auto-find a version and return it ----
 
     private fun startFastModeIfEnabled(request: HelperRequest) {
         if (!helperSettings.fastMode) return
-        if (!request.hasRequestedVersionRequest) return
         if (fastModeActive) return
+        // REQUESTED mode needs a concrete version to match against; LATEST and
+        // ALWAYS_ASK can resolve the newest version even with no request fields.
+        val policy = helperSettings.fastModePolicy
+        if (policy == FastModePolicy.REQUESTED && !request.hasRequestedVersionRequest) return
         fastModeActive = true
+        fastModeRunPolicy = if (policy == FastModePolicy.ALWAYS_ASK) FastModePolicy.REQUESTED else policy
         fastModeQueue = DownloadSource.entries
             .filter { it !in NON_FAST_MODE_SOURCES }
             .filter { it !in effectiveDisabledSources }
             .toMutableList()
-        appendLog("Fast Mode: auto-searching sources for the exact requested version.", LogLevel.Info)
-        uiState = UiState.FastMode(FastModeProgress(detail = "Auto-searching sources…"))
-        lifecycleScope.launch {
+        if (policy == FastModePolicy.ALWAYS_ASK) {
+            appendLog("Fast Mode: asking which version to fetch.", LogLevel.Info)
+            uiState = UiState.FastMode(
+                FastModeProgress(
+                    detail = "Auto-searching sources…",
+                    awaitingVersionChoice = true,
+                    versionChoiceDetail =
+                    "Retrieve the requested version ${request.requestedVersionLabel} " +
+                        "or fetch the latest available version?"
+                )
+            )
+            lifecycleScope.launch {
+                val gate = CompletableDeferred<FastModePolicy?>()
+                fastModeVersionDecision = gate
+                val chosen = gate.await()
+                fastModeVersionDecision = null
+                if (!fastModeActive || chosen == null) return@launch
+                fastModeRunPolicy = chosen
+                appendLog("Fast Mode: resolving ${chosen.name.lowercase(Locale.US)} version.", LogLevel.Info)
+                uiState = UiState.FastMode(FastModeProgress(detail = "Auto-searching sources…"))
+                fastModeRun(request, chosen)
+            }
+        } else {
+            appendLog(
+                "Fast Mode: auto-searching sources for the ${policy.name.lowercase(Locale.US)} version.",
+                LogLevel.Info
+            )
+            uiState = UiState.FastMode(FastModeProgress(detail = "Auto-searching sources…"))
+            lifecycleScope.launch {
+                fastModeRun(request, policy)
+            }
+        }
+    }
+
+    private fun fastModeChooseVersion(policy: FastModePolicy) {
+        fastModeVersionDecision?.complete(policy)
+    }
+
+    private suspend fun fastModeRun(request: HelperRequest, policy: FastModePolicy) {
+        if (policy == FastModePolicy.LATEST) {
+            fastModeNextLatest(request)
+        } else {
             fastModeNext(request)
         }
     }
@@ -1237,6 +1286,82 @@ class MainActivity : ComponentActivity() {
         } else {
             UiState.Idle
         }
+    }
+
+    private suspend fun fastModeNextLatest(request: HelperRequest) {
+        val queue = fastModeQueue ?: return
+        while (queue.isNotEmpty()) {
+            if (!fastModeActive) return
+            val source = queue.removeAt(0)
+            appendLog("Fast Mode: fetching latest from ${source.label}...", LogLevel.Info)
+            uiState = UiState.FastMode(
+                FastModeProgress(sourceLabel = source.label, detail = "Checking ${source.label}…")
+            )
+            val candidates = withContext(Dispatchers.IO) {
+                runCatching {
+                    resolveSourceSection(request, source, CandidateOption.LATEST).candidates
+                }.getOrDefault(emptyList())
+            }
+            if (!fastModeActive) return
+            val best = fastModeLatestCandidate(request, candidates)
+            if (best != null) {
+                appendLog(
+                    "Fast Mode: latest ${best.versionDisplay} on ${source.label} " +
+                        "(${best.fileKind.uppercase(Locale.US)})  downloading.",
+                    LogLevel.Info
+                )
+                uiState = UiState.FastMode(
+                    FastModeProgress(
+                        sourceLabel = source.label,
+                        detail = "Found latest ${best.versionDisplay}  downloading…",
+                        percent = 0
+                    )
+                )
+                downloadAndReturn(best)
+                return
+            }
+            appendLog("Fast Mode: no newer latest on ${source.label}.", LogLevel.Info)
+        }
+        fastModeActive = false
+        fastModeQueue = null
+        appendLog("Fast Mode: no source offered a newer version than requested. Use the sources below.", LogLevel.Warning)
+        val activeRequest = request
+        uiState = if (activeRequest != null) {
+            UiState.FastMode(
+                FastModeProgress(
+                    detail = "No source offered a newer version than ${request.requestedVersionLabel}.",
+                    done = true,
+                    succeeded = false,
+                    result = initialCandidateResult(activeRequest)
+                )
+            )
+        } else {
+            UiState.Idle
+        }
+    }
+
+    /**
+     * The newest direct-download candidate a source resolved for [option] LATEST.
+     * Keeps the version strictly newer than the request when a requested version
+     * name is known (so "latest" is only reported when it actually is newer); with
+     * no requested version, returns the newest candidate regardless.
+     */
+    private fun fastModeLatestCandidate(
+        request: HelperRequest,
+        candidates: List<DownloadCandidate>
+    ): DownloadCandidate? {
+        val requested = request.requestedVersionName
+        val newer = candidates
+            .filter { it.directDownload && it.versionName != null }
+            .filter { candidate ->
+                requested == null || compareVersionNames(candidate.versionName, requested) > 0
+            }
+        return newer.maxWithOrNull(
+            Comparator<DownloadCandidate> { a, b ->
+                val byVersion = compareVersionNames(b.versionName, a.versionName)
+                if (byVersion != 0) byVersion else a.sortIndex.compareTo(b.sortIndex)
+            }
+        )
     }
 
     private suspend fun fastModeFindCandidate(
@@ -2305,6 +2430,7 @@ private fun HelperScreen(
     onCancelFastMode: () -> Unit,
     onUseFastModeMismatch: () -> Unit,
     onSkipFastModeMismatch: () -> Unit,
+    onChooseVersion: (FastModePolicy) -> Unit,
     onOpenMorphe: () -> Unit,
     onSolveCaptcha: (DownloadCandidate) -> Unit,
     onRequestFileTypeChange: (String) -> Unit,
@@ -2534,7 +2660,8 @@ private fun HelperScreen(
                             onSkipWait = onSkipScanWait,
                             onUseMismatch = onUseFastModeMismatch,
                             onSkipMismatch = onSkipFastModeMismatch,
-                            onSkipScan = onSkipScan
+                            onSkipScan = onSkipScan,
+                            onChooseVersion = onChooseVersion
                         )
                     }
                     if (isScanStatus(state.progress.detail)) {
@@ -3233,14 +3360,36 @@ private fun HelperSettingsCard(
             SettingSwitchRow(
                 icon = Icons.Outlined.Bolt,
                 title = "Fast Mode",
-                description = "Auto-find the exact requested version and version code across sources " +
-                    "(APKMirror, Uptodown, APKPure, APKCombo, Aptoide) and return it to Morphe automatically. " +
+                description = "Auto-fetch a version across sources and return it to Morphe automatically. " +
                     "Format differences are allowed.",
                 checked = settings.fastMode,
                 onCheckedChange = {
                     onSettingsChange(settings.copy(fastMode = it))
                 }
             )
+            if (settings.fastMode) {
+                Text(
+                    text = "Which version to fetch",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                FastModePolicy.entries.forEach { policy ->
+                    SettingsOptionCard(
+                        icon = when (policy) {
+                            FastModePolicy.REQUESTED -> Icons.Outlined.Tune
+                            FastModePolicy.LATEST -> Icons.Outlined.TrendingUp
+                            FastModePolicy.ALWAYS_ASK -> Icons.Outlined.HelpOutline
+                        },
+                        title = policy.title,
+                        description = policy.description,
+                        selected = settings.fastModePolicy == policy,
+                        onClick = {
+                            onSettingsChange(settings.copy(fastModePolicy = policy))
+                        }
+                    )
+                }
+            }
         }
 
         SettingsGroupCard("Logging") {
@@ -6214,7 +6363,8 @@ private fun FastModeCard(
     onSkipWait: () -> Unit,
     onUseMismatch: () -> Unit,
     onSkipMismatch: () -> Unit,
-    onSkipScan: () -> Unit
+    onSkipScan: () -> Unit,
+    onChooseVersion: (FastModePolicy) -> Unit
 ) {
     HelperCard(cornerRadius = HelperDefaults.SectionCornerRadius) {
         Column(
@@ -6278,7 +6428,53 @@ private fun FastModeCard(
                     }
                 }
             }
-            if (progress.awaitingDecision) {
+            if (progress.awaitingVersionChoice) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(HelperDefaults.ContentPadding),
+                        horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = progress.versionChoiceDetail
+                                ?: "Which version should Fast Mode fetch?",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                ) {
+                    HelperButton(
+                        text = "Requested version",
+                        onClick = { onChooseVersion(FastModePolicy.REQUESTED) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    HelperButton(
+                        text = "Latest version",
+                        onClick = { onChooseVersion(FastModePolicy.LATEST) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                HelperOutlinedButton(
+                    text = "Cancel",
+                    onClick = onCancel,
+                    icon = Icons.Outlined.Close,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else if (progress.awaitingDecision) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.onErrorContainer,
@@ -7696,6 +7892,9 @@ private data class FastModeProgress(
     // Set while Fast Mode waits for the user to accept a version-code mismatch.
     val awaitingDecision: Boolean = false,
     val mismatchDetail: String? = null,
+    // True while Fast Mode (ALWAYS_ASK) asks which version to fetch.
+    val awaitingVersionChoice: Boolean = false,
+    val versionChoiceDetail: String? = null,
     // True once the downloaded file's bytes matched the source-published SHA-256;
     // shown persistently on the card (not just the transient post-download status).
     val shaVerified: Boolean = false

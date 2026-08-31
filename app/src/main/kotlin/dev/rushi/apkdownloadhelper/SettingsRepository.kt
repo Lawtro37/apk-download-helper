@@ -34,6 +34,8 @@ internal data class HelperSettings(
     val deleteTemporaryAfterHandoff: Boolean = true,
     val logcatLogging: Boolean = true,
     val fastMode: Boolean = false,
+    // Which version Fast Mode should auto-fetch when multiple are available.
+    val fastModePolicy: FastModePolicy = FastModePolicy.REQUESTED,
     val disabledSources: Set<DownloadSource> = emptySet(),
     val themeMode: ThemeMode = ThemeMode.DARK,
     val dynamicColors: Boolean = true,
@@ -60,6 +62,24 @@ internal enum class VirusTotalScanMode(
     ALWAYS(
         title = "Always scan",
         description = "Automatically scan every download before handing off."
+    )
+}
+
+internal enum class FastModePolicy(
+    val title: String,
+    val description: String
+) {
+    REQUESTED(
+        title = "Requested version",
+        description = "Find the exact requested version + version code across sources (current behaviour)."
+    ),
+    LATEST(
+        title = "Latest version",
+        description = "Fetch the newest version any source offers, even if it differs from the requested one."
+    ),
+    ALWAYS_ASK(
+        title = "Always ask",
+        description = "Ask once per request which version to fetch."
     )
 }
 
@@ -153,6 +173,10 @@ internal fun Context.loadHelperSettings(): HelperSettings {
         deleteTemporaryAfterHandoff = prefs.getBoolean("delete_temporary_after_handoff", true),
         logcatLogging = prefs.getBoolean("logcat_logging", true),
         fastMode = prefs.getBoolean("fast_mode", false),
+        fastModePolicy = enumValueOrDefault(
+            prefs.getString("fast_mode_policy", null),
+            FastModePolicy.REQUESTED
+        ),
         disabledSources = prefs.getStringSet("disabled_sources", emptySet())
             .orEmpty()
             .mapNotNull { name -> DownloadSource.entries.firstOrNull { it.name == name } }
@@ -187,6 +211,7 @@ internal fun Context.saveHelperSettings(settings: HelperSettings) {
         .putBoolean("delete_temporary_after_handoff", settings.deleteTemporaryAfterHandoff)
         .putBoolean("logcat_logging", settings.logcatLogging)
         .putBoolean("fast_mode", settings.fastMode)
+        .putString("fast_mode_policy", settings.fastModePolicy.name)
         .putStringSet("disabled_sources", settings.disabledSources.map { it.name }.toSet())
         .putString("theme_mode", settings.themeMode.name)
         .putBoolean("dynamic_colors", settings.dynamicColors)
