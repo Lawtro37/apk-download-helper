@@ -1139,24 +1139,9 @@ class MainActivity : ComponentActivity() {
                     "Retrieve the requested version or fetch the latest available version?"
                 )
             )
-            // Resolve the newest version across sources in the background so
-            // the prompt can show the actual requested-vs-latest difference.
-            // The run itself stays parked on the gate until the user picks.
-            lifecycleScope.launch {
-                val preview = fastModeVersionPreview(request, gate)
-                if (fastModeActive && fastModeVersionDecision === gate) {
-                    uiState = UiState.FastMode(
-                        FastModeProgress(
-                            detail = "Auto-searching sources…",
-                            awaitingVersionChoice = true,
-                            versionChoiceRequested = request.requestedVersionLabel,
-                            versionChoiceDetail =
-                            "Retrieve the requested version or fetch the latest available version?",
-                            versionPreview = preview
-                        )
-                    )
-                }
-            }
+            // Ask first, resolve later: the run stays parked on the gate and
+            // only starts searching sources after the user picks, so the
+            // prompt appears instantly instead of waiting on a background scan.
             lifecycleScope.launch {
                 val chosen = gate.await()
                 fastModeVersionDecision = null
@@ -1404,57 +1389,6 @@ class MainActivity : ComponentActivity() {
                 val byVersion = compareVersionNames(b.versionName, a.versionName)
                 if (byVersion != 0) byVersion else a.sortIndex.compareTo(b.sortIndex)
             }
-        )
-    }
-
-    /**
-     * Walks the Fast Mode source queue resolving LATEST for each source and
-     * returns the single newest direct-download candidate across all of them,
-     * plus the first source that has the exact requested version (if any).
-     * Used only to preview both options on the ALWAYS_ASK prompt; the queue
-     * is not consumed and the run stays parked until the user picks. Bails as
-     * soon as the user has chosen (gate identity changes) or the run cancels.
-     */
-    private suspend fun fastModeVersionPreview(
-        request: HelperRequest,
-        gate: CompletableDeferred<FastModePolicy?>
-    ): FastModeVersionPreview? {
-        val queue = (fastModeQueue ?: return null).toList()
-        var best: Pair<DownloadCandidate, DownloadSource>? = null
-        var requestedSource: DownloadSource? = null
-        for (source in queue) {
-            if (!fastModeActive || fastModeVersionDecision !== gate) return null
-            // Whether the exact requested version exists on this source; the
-            // same strict match the "Requested" run path uses.
-            if (requestedSource == null && request.hasRequestedVersionRequest) {
-                val found = withContext(Dispatchers.IO) {
-                    runCatching { fastModeFindCandidate(request, source) }
-                        .getOrNull()
-                }
-                if (found is FastModeFindResult.Exact) requestedSource = source
-            }
-            if (!fastModeActive || fastModeVersionDecision !== gate) return null
-            val candidates = withContext(Dispatchers.IO) {
-                runCatching {
-                    resolveSourceSection(request, source, CandidateOption.LATEST).candidates
-                }.getOrDefault(emptyList())
-            }
-            if (!fastModeActive || fastModeVersionDecision !== gate) return null
-            val bestForSource = fastModeLatestCandidate(request, candidates)
-            if (bestForSource != null) {
-                if (best == null ||
-                    compareVersionNames(bestForSource.versionName, best.first.versionName) > 0
-                ) {
-                    best = bestForSource to source
-                }
-            }
-        }
-        val (candidate, source) = best ?: return null
-        return FastModeVersionPreview(
-            latestSourceLabel = source.label,
-            latestVersionDisplay = candidate.versionDisplay,
-            latestFileKind = candidate.fileKind.uppercase(Locale.US),
-            requestedSourceLabel = requestedSource?.label
         )
     }
 
@@ -7528,48 +7462,23 @@ private fun FastModeCard(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Requested",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = buildString {
-                                    append(progress.versionChoiceRequested ?: "—")
-                                    progress.versionPreview?.let { preview ->
-                                        append(" · ")
-                                        append(
-                                            preview.requestedSourceLabel
-                                                ?: "not found on any source"
-                                        )
-                                    }
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Latest available",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = progress.versionPreview?.let { preview ->
-                                    "${preview.latestVersionDisplay} · ${preview.latestSourceLabel}"
-                                } ?: "Checking sources…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                        progress.versionChoiceRequested?.let { requested ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Requested",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = requested,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
@@ -7583,9 +7492,7 @@ private fun FastModeCard(
                         modifier = Modifier.weight(1f)
                     )
                     HelperButton(
-                        text = progress.versionPreview?.let {
-                            "Use latest ${it.latestVersionDisplay}"
-                        } ?: "Latest version",
+                        text = "Latest version",
                         onClick = { onChooseVersion(FastModePolicy.LATEST) },
                         modifier = Modifier.weight(1f)
                     )
@@ -9020,23 +8927,9 @@ private data class FastModeProgress(
     // The requested version shown on the ALWAYS_ASK prompt, so the user can
     // compare it against the newest version each source offers.
     val versionChoiceRequested: String? = null,
-    // Once sources have been checked, the newest version found across them
-    // (and whether the exact requested version exists anywhere); null means
-    // the check is still running.
-    val versionPreview: FastModeVersionPreview? = null,
     // True once the downloaded file's bytes matched the source-published SHA-256;
     // shown persistently on the card (not just the transient post-download status).
     val shaVerified: Boolean = false
-)
-
-private data class FastModeVersionPreview(
-    val latestSourceLabel: String,
-    val latestVersionDisplay: String,
-    val latestFileKind: String,
-    // First source offering the exact requested version, or null if none do.
-    // Mirrors the strictness of the "Requested" run path so the prompt shows
-    // whether picking Requested will actually find it.
-    val requestedSourceLabel: String?
 )
 
 internal object DownloadHelperContract {
