@@ -4340,6 +4340,12 @@ private fun AppBrowserScreen(
         }
     }
 
+    // System back (including the TalkBack back gesture) should first leave the
+    // app detail back to the list; only from the list does it close the browser.
+    BackHandler(enabled = selected != null) {
+        selected = null
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
