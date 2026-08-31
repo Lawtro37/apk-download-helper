@@ -32,6 +32,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
@@ -177,6 +178,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -186,6 +188,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -2121,6 +2124,27 @@ private fun HelperTheme(
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         dark -> darkHelperColorScheme()
         else -> lightHelperColorScheme()
+    }
+    // Keep the system bars in sync with the active theme. On Android 15+ (which
+    // enforces edge-to-edge) the appearance flags decide whether the transparent
+    // nav bar renders with light or dark icons; without them some devices default
+    // to a light nav bar even in dark mode. Below Android 15 the bar colors still
+    // apply, so paint them explicitly to match the theme and avoid OEM defaults.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+            @Suppress("DEPRECATION")
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                val barColor = (if (dark) Color(0xFF0B0C10) else Color(0xFFF7F8FA)).toArgb()
+                window.statusBarColor = barColor
+                window.navigationBarColor = barColor
+            }
+        }
     }
     MaterialTheme(colorScheme = colorScheme, content = content)
 }
