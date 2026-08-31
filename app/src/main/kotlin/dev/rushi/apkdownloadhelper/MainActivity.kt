@@ -7988,9 +7988,20 @@ internal fun fileKindFromUrl(url: String): String {
         .find(decoded)
         ?.groupValues
         ?.getOrNull(1)
+    // Some CDNs expose a bundle only in the path segment rather than the file
+    // name (e.g. APKPure's d.apkpure.com/b/XAPK/<pkg>?versionCode=N), where the
+    // last segment is the package, not the archive. Match those segments too so
+    // an XAPK/APKS/APKM link isn't mislabelled as a plain APK (which later
+    // fails archive validation). Scoped to whole segments to avoid the
+    // apkmirror/dowload.php substring false-positives the extension check
+    // already avoids.
+    val segments = path.split('/').filter { it.isNotBlank() }
+    val segmentKinds = setOf("apks", "apkm", "xapk")
+    val segmentKind = segments.asReversed().firstOrNull { it in segmentKinds }
     return when {
         extension in setOf("apk", "apks", "apkm", "xapk") -> extension
         fileNameKind != null -> fileNameKind
+        segmentKind != null -> segmentKind
         "xapk" in fileName -> "xapk"
         "apks" in fileName -> "apks"
         "apkm" in fileName -> "apkm"
