@@ -4329,6 +4329,14 @@ private fun AppBrowserScreen(
                 },
                 modifier = Modifier.align(Alignment.CenterStart)
             )
+            if (selected == null) {
+                HelperHeaderIconButton(
+                    icon = Icons.Outlined.Refresh,
+                    contentDescription = "Refresh",
+                    onClick = { loadKey++ },
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
+            }
         }
 
         val current = selected
