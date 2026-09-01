@@ -330,6 +330,28 @@ class ApkMirrorParserTest {
         assertTrue(resolved == null)
     }
 
+    private fun versionParser() = ApkMirrorParser(testParserContext(pages = emptyMap()))
+
+    @Test
+    fun apkMirrorVersionFromReleaseUrl_stripsDigitSuffixedAppSlug() {
+        // App slug "file-manager-7" ends in a digit: without the app-page
+        // context, the "7" leaks into the version and 3.5.4 reads as 7.3.5.4
+        // (which would pass Fast Mode's "newer than requested" gate for a
+        // 3.8.2 request and download an older APK).
+        val releaseUrl =
+            "https://www.apkmirror.com/apk/file-manager-plus/file-manager-7/file-manager-7-3-5-4-release/"
+        val appPage = "https://www.apkmirror.com/apk/file-manager-plus/file-manager-7/"
+        assertEquals("7.3.5.4", versionParser().apkMirrorVersionFromReleaseUrl(releaseUrl))
+        assertEquals("3.5.4", versionParser().apkMirrorVersionFromReleaseUrl(releaseUrl, appPage))
+    }
+
+    @Test
+    fun apkMirrorVersionFromReleaseUrl_plainSlugUnchangedWithContext() {
+        val releaseUrl =
+            "https://www.apkmirror.com/apk/example-org/example-app/example-app-2-0-0-release/"
+        assertEquals("2.0.0", versionParser().apkMirrorVersionFromReleaseUrl(releaseUrl, appPageUrl))
+    }
+
     @Test
     fun compareVersionNames_ordersCorrectly() {
         assertTrue(compareVersionNames("10.0.0", "9.9.9") > 0)

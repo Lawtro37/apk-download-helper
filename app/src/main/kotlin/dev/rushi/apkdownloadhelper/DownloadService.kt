@@ -1162,6 +1162,28 @@ internal fun validateDownloadedArtifact(
             throw VersionCodeMismatchException(file, metadata.versionCode)
         }
     }
+
+    // Fast Mode "Latest" must never hand over a file that is not actually
+    // newer than the requested version. The downloaded APK's real manifest is
+    // the ground truth here: the source page's version can be misparsed (e.g.
+    // an app slug ending in a digit leaking into the version), which would
+    // make an older build pass the "newer than requested" gate. Delete and
+    // fail loudly instead of delivering an older APK labelled "latest".
+    if (checkVersionCode && candidate.option == CandidateOption.LATEST) {
+        val requestedName = request.requestedVersionName
+        val foundName = metadata.versionName
+        if (
+            requestedName != null &&
+            foundName != null &&
+            compareVersionNames(foundName, requestedName) <= 0
+        ) {
+            file.delete()
+            throw IllegalStateException(
+                "Downloaded \"latest\" version $foundName is not newer than " +
+                    "requested $requestedName. Deleted the file."
+            )
+        }
+    }
 }
 
 

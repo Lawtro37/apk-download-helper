@@ -73,7 +73,7 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
         return releaseUrls
             .distinct()
             .mapNotNull { releaseUrl ->
-                val versionName = apkMirrorVersionFromReleaseUrl(releaseUrl) ?: return@mapNotNull null
+                val versionName = apkMirrorVersionFromReleaseUrl(releaseUrl, appPageUrl) ?: return@mapNotNull null
                 DownloadCandidate(
                     source = DownloadSource.APK_MIRROR,
                     name = request.appName,
@@ -222,7 +222,7 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
                     apkMirrorReleaseLinks(appDoc, appPageUrl)
                 ).distinct()
         )
-        val latestVersion = latestReleaseUrl?.let(::apkMirrorVersionFromReleaseUrl)
+        val latestVersion = latestReleaseUrl?.let { apkMirrorVersionFromReleaseUrl(it, appPageUrl) }
             ?: searchVersion
             ?: apkMirrorVersions(appDoc.html()).firstOrNull()
 
@@ -734,18 +734,28 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
         doc.select("span.apkm-badge, .apkm-badge")
             .any { it.text().contains("bundle", ignoreCase = true) }
 
-    private fun apkMirrorVersionFromReleaseUrl(url: String): String? {
-        val slug = runCatching {
-            java.net.URI(url).path.trimEnd('/').substringAfterLast('/').removeSuffix("-release")
-        }.getOrNull() ?: return null
-        return Regex("""\d+(?:[-.]\d+)+(?:[-.](?:alpha|beta|rc)\d*)?""", RegexOption.IGNORE_CASE)
-            .findAll(slug)
-            .lastOrNull()
-            ?.value
-            ?.replace("-", ".")
+internal fun apkMirrorVersionFromReleaseUrl(url: String, appPageUrl: String? = null): String? {
+    val path = runCatching { java.net.URI(url).path.trimEnd('/') }.getOrNull() ?: return null
+    var slug = path.substringAfterLast('/').removeSuffix("-release")
+    // A release slug is "<app-slug>-<version-slug>". The app slug can itself
+    // end in a digit (e.g. "file-manager-7" in "file-manager-7-3-5-4-release"),
+    // which would otherwise leak into the version ("7.3.5.4" instead of
+    // "3.5.4") and make Fast Mode "Latest" think an older build is newer than
+    // the request. Strip the app slug using the app page URL when available.
+    val appSlug = appPageUrl
+        ?.let { runCatching { java.net.URI(it).path.trimEnd('/').substringAfterLast('/') }.getOrNull() }
+        ?.takeIf(String::isNotBlank)
+    if (appSlug != null && slug.startsWith("$appSlug-")) {
+        slug = slug.removePrefix("$appSlug-")
     }
+    return Regex("""\d+(?:[-.]\d+)+(?:[-.](?:alpha|beta|rc)\d*)?""", RegexOption.IGNORE_CASE)
+        .findAll(slug)
+        .lastOrNull()
+        ?.value
+        ?.replace("-", ".")
+}
 
-    private fun apkMirrorReleaseUrlMatchesVersion(url: String, version: String): Boolean =
+private fun apkMirrorReleaseUrlMatchesVersion(url: String, version: String): Boolean =
         apkMirrorLooksLikeReleaseUrl(url) &&
             (
                 apkMirrorVersionFromReleaseUrl(url).versionNameEquals(version) ||
