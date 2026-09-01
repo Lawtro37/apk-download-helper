@@ -1544,16 +1544,41 @@ class MainActivity : ComponentActivity() {
                             UiState.Idle
                         }
                     }
+                    // The owner has observed the event; clear it so a future
+                    // activity recreation cannot replay it into a new request
+                    // session.
+                    DownloadJobManager.clearEvent()
+                } else if (event.epoch != DownloadJobManager.currentEpoch) {
+                    // A stale epoch belongs to an earlier session that no live
+                    // activity owns any more. Safe to drop entirely.
+                    appendLog(
+                        "Ignoring download completion for a stale request session " +
+                            "(epoch ${event.epoch}, current ${DownloadJobManager.currentEpoch}).",
+                        LogLevel.Warning
+                    )
+                    if (uiState is UiState.Downloading) {
+                        val activeRequest = request
+                        uiState = if (activeRequest != null) {
+                            UiState.Ready(initialCandidateResult(activeRequest))
+                        } else {
+                            UiState.Idle
+                        }
+                    }
+                    DownloadJobManager.clearEvent()
                 } else {
+                    // Same epoch as the current session, but this instance does
+                    // not own the request (no request, or a different package):
+                    // for example a stale activity living in a separate task
+                    // created from a bare launcher intent. Must ignore WITHOUT
+                    // clearing, or the real owner's collector would never see
+                    // the event (StateFlow conflates: a clear before the owner
+                    // processes it swallows the completion and the file is
+                    // never returned to the caller).
                     appendLog(
                         "Ignoring download completion for a different request session " +
                             "(epoch ${event.epoch}, current ${DownloadJobManager.currentEpoch}).",
                         LogLevel.Warning
                     )
-                    // The stuck-at-100% symptom is gone once a terminal event
-                    // always lands somewhere  but if the UI is still showing a
-                    // stale in-flight download, reset it so the user is never
-                    // left frozen on a progress bar.
                     if (uiState is UiState.Downloading) {
                         val activeRequest = request
                         uiState = if (activeRequest != null) {
@@ -1563,10 +1588,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                // The event has been observed (or discarded)  clear it so a
-                // future activity recreation cannot replay it into a new
-                // request session.
-                DownloadJobManager.clearEvent()
             }
             is DownloadJobManager.Event.Failed -> {
                 appendLog(event.message, LogLevel.Error)
