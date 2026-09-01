@@ -111,7 +111,7 @@ internal enum class DownloadLocation(
     ),
     DOWNLOADS(
         title = "Store in downloads",
-        description = "Save a visible copy in Downloads/APK Download Helper after the file checks out."
+        description = "Save a visible copy in Downloads/Helper for Morphe after the file checks out."
     )
 }
 
@@ -267,7 +267,7 @@ internal fun Context.clearTemporaryDownloads(): Long {
 
 /** Path of the visible copy folder inside Downloads. */
 internal fun downloadsCopyRelativePath(): String =
-    "${Environment.DIRECTORY_DOWNLOADS}/APK Download Helper"
+    "${Environment.DIRECTORY_DOWNLOADS}/Helper for Morphe"
 
 /** Total size of the visible copies saved to Downloads. */
 internal fun Context.downloadsCopySize(): Long {
@@ -289,7 +289,7 @@ internal fun Context.downloadsCopySize(): Long {
     }
     val dir = File(
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-        "APK Download Helper"
+        "Helper for Morphe"
     )
     return dir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
 }
@@ -321,7 +321,7 @@ internal fun Context.clearDownloadsCopies(): Long {
     }
     val dir = File(
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-        "APK Download Helper"
+        "Helper for Morphe"
     )
     val files = dir.listFiles()?.filter { it.isFile }.orEmpty()
     val freed = files.sumOf { it.length() }

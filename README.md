@@ -1,10 +1,10 @@
-# APK Download Helper
+# Helper for Morphe
 
 <p align="center">
-  <img src="docs/logo.png" alt="APK Download Helper for Morphe" width="180" />
+  <img src="docs/logo.png" alt="Helper for Morphe" width="180" />
 </p>
 
-APK Download Helper is a standalone Android helper app for finding and returning original APK files requested by Morphe Manager.
+Helper for Morphe is a standalone Android helper app for finding and returning original APK files requested by Morphe Manager.
 
 The helper receives a package/version request through an Android intent, lets the user choose a supported APK source, downloads a matching file when direct download is available, and returns a readable `content://` URI back to the caller.
 
@@ -45,7 +45,7 @@ Every source can be individually enabled or disabled from Settings → Sources. 
 
 The helper has a tabbed settings screen:
 
-- **Save downloads**: store in Helper's cache (honoring the auto-clear toggle) or keep a validated copy in `Downloads/APK Download Helper`; a storage card shows cache and Downloads sizes and clears both with one tap.
+- **Save downloads**: store in Helper's cache (honoring the auto-clear toggle) or keep a validated copy in `Downloads/Helper for Morphe`; a storage card shows cache and Downloads sizes and clears both with one tap.
 - **Connection**: allow Wi-Fi only, mobile data only, or both Wi-Fi and mobile data.
 - **Sources**: toggle each APK source on or off — disabled sources disappear from the picker, manual links, and Fast Mode.
 - **Fast Mode**: enable auto-search of the exact requested version across sources.
@@ -145,7 +145,7 @@ APK hosting and indexing costs money. If this helper saves you time, consider su
 
 ## License
 
-APK Download Helper is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
+Helper for Morphe is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
 
 ## Notes
 

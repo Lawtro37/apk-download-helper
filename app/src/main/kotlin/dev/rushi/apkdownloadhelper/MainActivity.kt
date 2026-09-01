@@ -7115,7 +7115,7 @@ private fun RequestLogsCard(
                 onClick = {
                     val share = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "APK Download Helper logs")
+                        putExtra(Intent.EXTRA_SUBJECT, "Helper for Morphe logs")
                         putExtra(Intent.EXTRA_TEXT, AppLog.exportText())
                     }
                     context.startActivity(Intent.createChooser(share, "Share logs"))
