@@ -2127,6 +2127,14 @@ private fun HelperTheme(
                 isAppearanceLightStatusBars = !dark
                 isAppearanceLightNavigationBars = !dark
             }
+            // Otherwise the system paints an opaque contrast scrim behind the
+            // bars (set by default on Android 10+), which does not follow the
+            // app background and shows as a lighter status/nav bar border in
+            // dark mode on some devices. Mirrors the PotHelper fix.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
+            }
             @Suppress("DEPRECATION")
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                 val barColor = (if (dark) Color(0xFF0B0C10) else Color(0xFFF7F8FA)).toArgb()
