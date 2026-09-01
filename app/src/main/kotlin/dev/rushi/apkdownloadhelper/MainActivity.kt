@@ -69,8 +69,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -222,7 +220,6 @@ import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.CompletableDeferred
@@ -5847,9 +5844,11 @@ private fun SourcePickerFlow(
     }
 
     val initialPage = selectedPagerPage.coerceIn(0, (groups.size - 1).coerceAtLeast(0))
-    val pagerState = rememberPagerState(initialPage = initialPage) { groups.size }
-    LaunchedEffect(pagerState.currentPage) { onPagerPageChanged(pagerState.currentPage) }
-    val scope = rememberCoroutineScope()
+    // Plain state instead of a HorizontalPager: swiping on the page content used
+    // to change the source, which users found accidental. Sources are now only
+    // switched via the dropdown below.
+    var currentPage by rememberSaveable { mutableIntStateOf(initialPage) }
+    SideEffect { onPagerPageChanged(currentPage) }
     var showHowItWorks by remember { mutableStateOf(false) }
     // The source cards collapse by default so the page stays focused on the
     // selected source's content; the SelectedSourceBar below always shows
@@ -5859,7 +5858,7 @@ private fun SourcePickerFlow(
     var subTabBySource by remember { mutableStateOf<Map<DownloadSource, SourceSubTab>>(emptyMap()) }
 
     // Clamp in case a source was disabled while this screen was showing.
-    val currentGroup = groups[pagerState.currentPage.coerceIn(0, groups.lastIndex)]
+    val currentGroup = groups[currentPage.coerceIn(0, groups.lastIndex)]
     val currentSubTab = subTabBySource[currentGroup.source]
         ?: defaultSubTab(currentGroup, request)
 
@@ -5964,15 +5963,9 @@ private fun SourcePickerFlow(
                                 if (index >= 0) {
                                     SourceMenuItem(
                                         source = src,
-                                        selected = index == pagerState.currentPage,
+                                        selected = index == currentPage,
                                         onClick = {
-                                            scope.launch {
-                                                if (abs(index - pagerState.currentPage) <= 1) {
-                                                    pagerState.animateScrollToPage(index)
-                                                } else {
-                                                    pagerState.scrollToPage(index)
-                                                }
-                                            }
+                                            currentPage = index
                                             sourcesExpanded = false
                                         }
                                     )
@@ -5984,34 +5977,22 @@ private fun SourcePickerFlow(
             }
         }
 
-        HorizontalPager(
-            state = pagerState,
-            key = { index -> groups[index].source },
-            // Only compose the current page so the pager's height matches the page on
-            // screen instead of the tallest neighbor (which left dead space on short
-            // pages). Pages are top-aligned so content never floats away from the cards.
-            beyondViewportPageCount = 0,
-            verticalAlignment = Alignment.Top,
-            modifier = Modifier.fillMaxWidth()
-        ) { page ->
-            val group = groups[page]
-            SourcePageContent(
-                request = request,
-                group = group,
-                selectedTab = subTabBySource[group.source] ?: defaultSubTab(group, request),
-                onSelectTab = { tab ->
-                    subTabBySource = subTabBySource + (group.source to tab)
-                },
-                onResolve = onResolve,
-                onDownload = onDownload,
-                onPickDownloadedFile = onPickDownloadedFile,
-                onUseInstalledApp = onUseInstalledApp,
-                onSolveCaptcha = onSolveCaptcha,
-                onVersionHistory = onVersionHistory,
-                onDownloadVersion = onDownloadVersion,
-                installedPackageRefreshToken = installedPackageRefreshToken
-            )
-        }
+        SourcePageContent(
+            request = request,
+            group = currentGroup,
+            selectedTab = subTabBySource[currentGroup.source] ?: defaultSubTab(currentGroup, request),
+            onSelectTab = { tab ->
+                subTabBySource = subTabBySource + (currentGroup.source to tab)
+            },
+            onResolve = onResolve,
+            onDownload = onDownload,
+            onPickDownloadedFile = onPickDownloadedFile,
+            onUseInstalledApp = onUseInstalledApp,
+            onSolveCaptcha = onSolveCaptcha,
+            onVersionHistory = onVersionHistory,
+            onDownloadVersion = onDownloadVersion,
+            installedPackageRefreshToken = installedPackageRefreshToken
+        )
     }
 }
 
