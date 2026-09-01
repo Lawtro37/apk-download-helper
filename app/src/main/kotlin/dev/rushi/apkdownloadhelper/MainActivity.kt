@@ -502,6 +502,14 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // singleTask routes a launcher-icon tap (bare MAIN intent) to this
+        // existing instance instead of creating a second task. Ignore it and
+        // keep the in-flight request on screen: only a fresh Morphe request
+        // replaces the current session.
+        if (intent.action != DownloadHelperContract.ACTION_DOWNLOAD_ORIGINAL_APK) {
+            installedPackageRefreshToken++
+            return
+        }
         request = HelperRequest.from(intent)
         startRequestLog(request)
         val activeRequest = request
