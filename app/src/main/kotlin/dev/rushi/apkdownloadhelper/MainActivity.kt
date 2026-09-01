@@ -1496,9 +1496,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
             is DownloadJobManager.Event.ScanAsk -> {
+                // Only the activity that owns this request may show the scan
+                // prompt. A stale instance (no request, or a different
+                // package) must ignore it  and must NOT clear it first, or
+                // the owner's collector would never see it (StateFlow
+                // conflates: a clear before the owner processes the event
+                // swallows it).
+                val activeRequest = request
+                if (activeRequest == null || event.candidate.packageName != activeRequest.packageName) return
                 uiState = UiState.ScanAsk(event.candidate)
             }
             is DownloadJobManager.Event.ScanComplete -> {
+                val activeRequest = request
+                if (activeRequest == null || event.candidate.packageName != activeRequest.packageName) return
                 val scanResult = event.result
                 val isMalicious = scanResult is VirusTotalScanner.ScanResult.Malicious
                 val detail = scanResultDetail(scanResult)
@@ -1598,6 +1608,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             is DownloadJobManager.Event.Failed -> {
+                // Only the owning activity may act on a failure. A stale
+                // instance (no request, or a different package) must ignore
+                // it  and must NOT clear it first, or the owner's collector
+                // would never see it (StateFlow conflates: a clear before
+                // the owner processes the event swallows it).
+                val failedRequest = request
+                if (failedRequest == null || event.candidate.packageName != failedRequest.packageName) return
                 appendLog(event.message, LogLevel.Error)
                 if (fastModeActive) {
                     val activeRequest = request
@@ -1702,6 +1719,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             is DownloadJobManager.Event.Cancelled -> {
+                // Only the owning activity may act on a cancellation. A stale
+                // instance (no request, or a different package) must ignore
+                // it  and must NOT clear it first, or the owner's collector
+                // would never see it (StateFlow conflates: a clear before
+                // the owner processes the event swallows it).
+                val cancelledRequest = request
+                if (cancelledRequest == null || event.candidate.packageName != cancelledRequest.packageName) return
                 appendLog("Download cancelled.", LogLevel.Warning)
                 fastModeActive = false
                 fastModeQueue = null
