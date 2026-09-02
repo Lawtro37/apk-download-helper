@@ -69,11 +69,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Add
@@ -4318,6 +4320,11 @@ private fun AppBrowserScreen(
     val context = LocalContext.current
     var favourites by remember { mutableStateOf<Set<String>>(emptySet()) }
     var installedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Hoisted above the list/detail branch so the scroll position survives
+    // opening an app's details and coming back — remember inside the list
+    // branch would be discarded when the detail view replaces the list.
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         favourites = MorpheFavourites.load(context)
         installedPackages = withContext(Dispatchers.IO) {
@@ -4518,34 +4525,59 @@ private fun AppBrowserScreen(
                             }
                         )
                     } else {
-                        val listState = rememberLazyListState()
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
                         ) {
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
-                                verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
-                            ) {
-                                items(filtered, key = { it.packageName }) { app ->
-                                    AppBrowserRow(
-                                        app = app,
-                                        favourite = app.packageName in favourites,
-                                        onToggleFavourite = {
-                                            favourites = MorpheFavourites.toggle(context, app.packageName)
-                                        },
-                                        onClick = { selected = app }
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(),
+                                    // Keep the last row clear of the floating
+                                    // "Go to top" button.
+                                    contentPadding = PaddingValues(bottom = 64.dp),
+                                    verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                                ) {
+                                    items(filtered, key = { it.packageName }) { app ->
+                                        AppBrowserRow(
+                                            app = app,
+                                            favourite = app.packageName in favourites,
+                                            onToggleFavourite = {
+                                                favourites = MorpheFavourites.toggle(context, app.packageName)
+                                            },
+                                            onClick = { selected = app }
+                                        )
+                                    }
+                                }
+                                LazyListScrollbar(
+                                    listState = listState,
+                                    modifier = Modifier.fillMaxHeight()
+                                )
+                            }
+                            // Quick jump back to the top for long catalogs; only
+                            // shown once the user has scrolled down. A clickable
+                            // Surface is natively exposed to TalkBack via the
+                            // icon's contentDescription.
+                            if (listState.firstVisibleItemIndex > 0) {
+                                Surface(
+                                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(end = 32.dp, bottom = 20.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.KeyboardArrowUp,
+                                        contentDescription = "Go to top",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(12.dp)
                                     )
                                 }
                             }
-                            LazyListScrollbar(
-                                listState = listState,
-                                modifier = Modifier.fillMaxHeight()
-                            )
                         }
                     }
                 }
