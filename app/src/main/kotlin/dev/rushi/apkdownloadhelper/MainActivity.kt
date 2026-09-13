@@ -3121,12 +3121,19 @@ private fun HelperSettingsScreen(
                 AdvancedTabContent(
                     settings = settings,
                     onSettingsChange = onSettingsChange,
-                    logs = logs,
-                    onClearLogs = onClearLogs,
                     historyEntries = historyEntries,
                     onOpenHistoryEntry = onOpenHistoryEntry,
                     onShareHistoryEntry = onShareHistoryEntry,
                     onClearHistory = onClearHistory
+                )
+            }
+
+            SettingsTab.LOGS -> item {
+                LogsTabContent(
+                    settings = settings,
+                    onSettingsChange = onSettingsChange,
+                    logs = logs,
+                    onClearLogs = onClearLogs
                 )
             }
         }
@@ -3203,7 +3210,14 @@ private fun SystemTabContent(
         val choices = buildList {
             add(SettingsChoice(Icons.Outlined.AutoAwesome, "Automatic", "Use the first enabled source"))
             addAll(sourceCategories.flatMap { (_, sources) -> sources }
-                .map { SettingsChoice(Icons.Outlined.Dns, it.label, "Prefer this source when it has the file") })
+                .map {
+                    SettingsChoice(
+                        icon = null,
+                        title = it.label,
+                        description = "Prefer this source when it has the file",
+                        source = it
+                    )
+                })
         }
         SettingsChoiceDialog(
             title = "Default source",
@@ -3273,7 +3287,8 @@ private fun SystemTabContent(
             DownloadSource.entries.forEach { source ->
                 MorpheDivider()
                 SettingsSwitchItem(
-                    icon = Icons.Outlined.Dns,
+                    // Each source's own brand logo, the same artwork the picker uses.
+                    leading = { SourceAvatar(source = source, size = MorpheDefaults.IconSize) },
                     title = source.label,
                     checked = source !in settings.disabledSources,
                     onToggle = {
@@ -3378,15 +3393,13 @@ private fun AppearanceTabContent(
 }
 
 /**
- * Advanced tab: scanning, logging, source reachability plus past hand-offs and
- * request logs  the manager's troubleshooting corner.
+ * Advanced tab: the scanning and reachability settings  VirusTotal, source health
+ * and past hand-offs. Request logs live on their own tab.
  */
 @Composable
 private fun AdvancedTabContent(
     settings: HelperSettings,
     onSettingsChange: (HelperSettings) -> Unit,
-    logs: List<RequestLogEntry>,
-    onClearLogs: () -> Unit,
     historyEntries: List<DownloadHistoryEntry>,
     onOpenHistoryEntry: (DownloadHistoryEntry) -> Unit,
     onShareHistoryEntry: (DownloadHistoryEntry) -> Unit,
@@ -3436,6 +3449,32 @@ private fun AdvancedTabContent(
             }
         }
 
+        SourceHealthCard()
+
+        DownloadHistorySection(
+            entries = historyEntries,
+            onClear = onClearHistory,
+            onOpen = onOpenHistoryEntry,
+            onShare = onShareHistoryEntry
+        )
+    }
+}
+
+/**
+ * Logs tab: the Logcat switch and the in-app request log, given their own space so
+ * they no longer trail the scanning settings in Advanced.
+ */
+@Composable
+private fun LogsTabContent(
+    settings: HelperSettings,
+    onSettingsChange: (HelperSettings) -> Unit,
+    logs: List<RequestLogEntry>,
+    onClearLogs: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingMedium)
+    ) {
         SettingsGroup(title = "Logging", icon = Icons.Outlined.BugReport) {
             SettingsSwitchItem(
                 icon = Icons.Outlined.BugReport,
@@ -3447,15 +3486,6 @@ private fun AdvancedTabContent(
                 }
             )
         }
-
-        SourceHealthCard()
-
-        DownloadHistorySection(
-            entries = historyEntries,
-            onClear = onClearHistory,
-            onOpen = onOpenHistoryEntry,
-            onShare = onShareHistoryEntry
-        )
 
         RequestLogsCard(
             logs = logs,
@@ -3569,11 +3599,13 @@ private fun SettingsGroup(
  */
 @Composable
 private fun SettingsRow(
-    icon: ImageVector,
+    icon: ImageVector? = null,
     title: String,
     subtitle: String? = null,
     value: String? = null,
     onClick: (() -> Unit)? = null,
+    /** Leading content used instead of [icon], e.g. a source's brand logo. */
+    leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
@@ -3590,7 +3622,11 @@ private fun SettingsRow(
             ),
         horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPadding)
     ) {
-        ThemedIcon(icon = icon, modifier = Modifier.padding(top = 2.dp))
+        if (leading != null) {
+            leading()
+        } else if (icon != null) {
+            ThemedIcon(icon = icon, modifier = Modifier.padding(top = 2.dp))
+        }
 
         Column(
             modifier = Modifier.weight(1f),
@@ -3630,11 +3666,13 @@ private fun SettingsRow(
 /** [SettingsRow] trailed by a switch that reflects [checked]; tapping the row toggles it. */
 @Composable
 private fun SettingsSwitchItem(
-    icon: ImageVector,
+    icon: ImageVector? = null,
     title: String,
     subtitle: String? = null,
     checked: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    /** Leading content used instead of [icon], e.g. a source's brand logo. */
+    leading: (@Composable () -> Unit)? = null
 ) {
     val enabledLabel = "Enabled"
     val disabledLabel = "Disabled"
@@ -3642,6 +3680,7 @@ private fun SettingsSwitchItem(
         icon = icon,
         title = title,
         subtitle = subtitle,
+        leading = leading,
         onClick = onToggle,
         trailing = {
             Box(
@@ -3655,9 +3694,11 @@ private fun SettingsSwitchItem(
 
 /** One option offered by [SettingsChoiceDialog]. */
 private data class SettingsChoice(
-    val icon: ImageVector,
+    val icon: ImageVector?,
     val title: String,
-    val description: String
+    val description: String,
+    /** When set, the choice shows this source's brand logo instead of [icon]. */
+    val source: DownloadSource? = null
 )
 
 /**
@@ -3678,8 +3719,13 @@ private fun SettingsChoiceDialog(
             Text(text = title, fontWeight = FontWeight.Bold)
         },
         text = {
+            // The source picker carries one row per source, which overflows a small
+            // screen, so the list scrolls inside a capped height instead of being clipped.
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
             ) {
                 choices.forEachIndexed { index, choice ->
@@ -3688,6 +3734,7 @@ private fun SettingsChoiceDialog(
                         title = choice.title,
                         description = choice.description,
                         selected = index == selectedIndex,
+                        source = choice.source,
                         onClick = { onSelect(index) }
                     )
                 }
@@ -3755,12 +3802,13 @@ private fun SettingsRowSurface(
 
 @Composable
 private fun SettingsOptionCard(
-    icon: ImageVector,
+    icon: ImageVector?,
     title: String,
     description: String,
     selected: Boolean,
     onClick: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    source: DownloadSource? = null
 ) {
     val colors = MaterialTheme.colorScheme
     SettingsRowSurface(selected = selected, enabled = enabled, onClick = onClick) {
@@ -3771,11 +3819,15 @@ private fun SettingsOptionCard(
             horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ThemedIcon(
-                icon = icon,
-                size = MorpheDefaults.IconSize,
-                tint = if (selected) colors.primary else colors.onSurfaceVariant
-            )
+            if (source != null) {
+                SourceAvatar(source = source, size = MorpheDefaults.IconSize)
+            } else if (icon != null) {
+                ThemedIcon(
+                    icon = icon,
+                    size = MorpheDefaults.IconSize,
+                    tint = if (selected) colors.primary else colors.onSurfaceVariant
+                )
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -6318,13 +6370,14 @@ private fun DownloadSource.brand(): SourceBrand = when (this) {
 
 @Composable
 private fun SourceAvatar(source: DownloadSource, size: Dp = 40.dp) {
-    // Official brand logo: square artwork, shown as-is with rounded corners.
+    // Official brand logo: square artwork, shown as-is with rounded corners sized to the
+    // artwork so a small inline icon stays a rounded square rather than turning into a circle.
     Image(
         painter = painterResource(source.brand().resId),
         contentDescription = null,
         modifier = Modifier
             .size(size)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(size / 4))
     )
 }
 
@@ -6620,8 +6673,11 @@ private enum class SettingsTab(
     val icon: ImageVector
 ) {
     APPEARANCE("Appearance", Icons.Outlined.Palette),
+    SYSTEM("System", Icons.Outlined.PhoneAndroid),
     ADVANCED("Advanced", Icons.Outlined.Tune),
-    SYSTEM("System", Icons.Outlined.PhoneAndroid)
+    // Request logs get a tab of their own: in Advanced they sat under the
+    // scanning settings and made that tab scroll for pages.
+    LOGS("Logs", Icons.Outlined.BugReport)
 }
 
 @Composable
@@ -6632,7 +6688,9 @@ private fun SettingsTabRow(
     MorpheSelectorRow(
         options = SettingsTab.entries.map { MorpheSelectorOption(label = it.label, icon = it.icon) },
         selectedIndex = SettingsTab.entries.indexOf(selected),
-        onSelect = { onSelect(SettingsTab.entries[it]) }
+        onSelect = { onSelect(SettingsTab.entries[it]) },
+        // Four tabs across, so keep the labels on the smaller step.
+        labelStyle = MaterialTheme.typography.labelLarge
     )
 }
 
