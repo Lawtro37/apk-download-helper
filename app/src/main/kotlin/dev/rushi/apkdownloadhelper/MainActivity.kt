@@ -43,6 +43,8 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -143,10 +145,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.Composable
@@ -187,6 +187,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
@@ -2124,18 +2125,23 @@ private fun HelperTheme(
     val colorScheme = when {
         dynamicColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkHelperColorScheme()
-        else -> lightHelperColorScheme()
+        dark -> morpheDarkColorScheme()
+        else -> morpheLightColorScheme()
     }
-    // Keep the system bars in sync with the active theme. On Android 15+ (which
-    // enforces edge-to-edge) the appearance flags decide whether the transparent
-    // nav bar renders with light or dark icons; without them some devices default
-    // to a light nav bar even in dark mode. Below Android 15 the bar colors still
-    // apply, so paint them explicitly to match the theme and avoid OEM defaults.
+    // The manager draws edge-to-edge behind fully transparent bars and lets each
+    // screen apply its own status/navigation bar insets, so the helper adopts the
+    // same setup. The appearance flags still decide whether the transparent bars
+    // render light or dark icons.
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window ?: return@SideEffect
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            @Suppress("DEPRECATION")
+            run {
+                window.statusBarColor = Color.Transparent.toArgb()
+                window.navigationBarColor = Color.Transparent.toArgb()
+            }
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !dark
                 isAppearanceLightNavigationBars = !dark
@@ -2148,72 +2154,14 @@ private fun HelperTheme(
                 window.isStatusBarContrastEnforced = false
                 window.isNavigationBarContrastEnforced = false
             }
-            @Suppress("DEPRECATION")
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                val barColor = (if (dark) Color(0xFF0B0C10) else Color(0xFFF7F8FA)).toArgb()
-                window.statusBarColor = barColor
-                window.navigationBarColor = barColor
-            }
         }
     }
-    MaterialTheme(colorScheme = colorScheme, content = content)
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = MorpheTypography,
+        content = content
+    )
 }
-
-@Composable
-private fun darkHelperColorScheme() = darkColorScheme(
-    primary = Color(0xFFA4C9FF),
-    onPrimary = Color(0xFF00315D),
-    primaryContainer = Color(0xFF004884),
-    onPrimaryContainer = Color(0xFFD4E3FF),
-    secondary = Color(0xFFBCC7DB),
-    onSecondary = Color(0xFF263141),
-    secondaryContainer = Color(0xFF3D4758),
-    onSecondaryContainer = Color(0xFFD8E3F8),
-    tertiary = Color(0xFFD9BDE3),
-    onTertiary = Color(0xFF3D2946),
-    tertiaryContainer = Color(0xFF543F5E),
-    onTertiaryContainer = Color(0xFFF6D9FF),
-    error = Color(0xFFFFB4AB),
-    errorContainer = Color(0xFF93000A),
-    onError = Color(0xFF690005),
-    onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF0B0C10),
-    onBackground = Color(0xFFE3E2E6),
-    surface = Color(0xFF1A1C1E),
-    onSurface = Color(0xFFE3E2E6),
-    surfaceVariant = Color(0xFF43474E),
-    onSurfaceVariant = Color(0xFFC3C6CF),
-    outline = Color(0xFF8D9199),
-    outlineVariant = Color(0xFF43474E),
-)
-
-@Composable
-private fun lightHelperColorScheme() = lightColorScheme(
-    primary = Color(0xFF005FAD),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD4E3FF),
-    onPrimaryContainer = Color(0xFF001C3A),
-    secondary = Color(0xFF3D4758),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFD8E3F8),
-    onSecondaryContainer = Color(0xFF263141),
-    tertiary = Color(0xFF543F5E),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFF6D9FF),
-    onTertiaryContainer = Color(0xFF3D2946),
-    error = Color(0xFFBA1A1A),
-    errorContainer = Color(0xFFFFDAD6),
-    onError = Color(0xFFFFFFFF),
-    onErrorContainer = Color(0xFF93000A),
-    background = Color(0xFFF7F8FA),
-    onBackground = Color(0xFF1A1C1E),
-    surface = Color(0xFFEFF0F3),
-    onSurface = Color(0xFF1A1C1E),
-    surfaceVariant = Color(0xFFDEE1E8),
-    onSurfaceVariant = Color(0xFF43474E),
-    outline = Color(0xFF74777F),
-    outlineVariant = Color(0xFFC4C6CF),
-)
 
 @Composable
 private fun HelperCard(
@@ -2222,16 +2170,13 @@ private fun HelperCard(
     color: Color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
     content: @Composable () -> Unit
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(cornerRadius),
+    SurfaceCard(
+        modifier = modifier,
+        elevation = MorpheDefaults.CardElevation,
+        cornerRadius = cornerRadius,
         color = color,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 2.dp,
-        shadowElevation = 0.dp
-    ) {
-        content()
-    }
+        content = content
+    )
 }
 
 @Composable
@@ -2241,28 +2186,13 @@ private fun HelperButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    Button(
+    MorpheDialogButton(
+        text = text,
         onClick = onClick,
-        modifier = modifier.height(HelperDefaults.ButtonHeight),
-        shape = RoundedCornerShape(HelperDefaults.ButtonCornerRadius),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = primary.copy(alpha = 0.28f),
-            contentColor = MaterialTheme.colorScheme.onSurface
-        ),
-        border = BorderStroke(1.dp, primary.copy(alpha = 0.48f)),
-        contentPadding = PaddingValues(horizontal = HelperDefaults.ContentPadding)
-    ) {
-        icon?.let {
-            Icon(
-                imageVector = it,
-                contentDescription = null,
-                modifier = Modifier.size(HelperDefaults.IconSizeSmall)
-            )
-            Spacer(Modifier.width(HelperDefaults.ContentPaddingSmall))
-        }
-        Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
+        modifier = modifier,
+        icon = icon,
+        filled = true
+    )
 }
 
 @Composable
@@ -2272,28 +2202,13 @@ private fun HelperOutlinedButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    OutlinedButton(
+    MorpheDialogButton(
+        text = text,
         onClick = onClick,
-        modifier = modifier.height(HelperDefaults.ButtonHeight),
-        shape = RoundedCornerShape(HelperDefaults.ButtonCornerRadius),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-        ),
-        border = BorderStroke(1.dp, primary.copy(alpha = 0.32f)),
-        contentPadding = PaddingValues(horizontal = HelperDefaults.ContentPadding)
-    ) {
-        icon?.let {
-            Icon(
-                imageVector = it,
-                contentDescription = null,
-                modifier = Modifier.size(HelperDefaults.IconSizeSmall)
-            )
-            Spacer(Modifier.width(HelperDefaults.ContentPaddingSmall))
-        }
-        Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
+        modifier = modifier,
+        icon = icon,
+        filled = false
+    )
 }
 
 // ---- In-app captcha browser: a real WebView that passes Cloudflare-style
@@ -2715,7 +2630,7 @@ private fun HelperScreen(
 
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionTitle("App info")
+                    SectionTitle("App info", Icons.Outlined.Smartphone)
                     AppInfoCard(
                         request = request,
                         onFormatSelected = onRequestFileTypeChange
@@ -3576,6 +3491,45 @@ private fun ThemeMode.icon(): ImageVector = when (this) {
     ThemeMode.LIGHT -> Icons.Outlined.LightMode
 }
 
+/**
+ * Neutral settings row card in the manager's `SettingsItemCard` language: theme
+ * surface fill, hairline border only when selected.
+ */
+@Composable
+private fun SettingsRowSurface(
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(MorpheDefaults.SettingsCornerRadius)
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(enabled = enabled, onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
+        shape = shape,
+        color = if (selected) colors.surfaceVariant else colors.surfaceColorAtElevation(3.dp),
+        contentColor = colors.onSurface,
+        tonalElevation = if (selected) 0.dp else 1.dp,
+        border = if (selected) {
+            BorderStroke(1.5.dp, colors.onSurface.copy(alpha = 0.5f))
+        } else {
+            null
+        }
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun SettingsOptionCard(
     icon: ImageVector,
@@ -3586,42 +3540,18 @@ private fun SettingsOptionCard(
     enabled: Boolean = true
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .clickable(enabled = enabled, onClick = onClick),
-        shape = shape,
-        // Matches the home screen's source cards: dark fill + hairline border,
-        // with the selected option getting a primary tint + border + radio dot.
-        color = if (selected) {
-            colors.primary.copy(alpha = 0.16f)
-        } else {
-            sourceCardFill()
-        },
-        contentColor = colors.onSurface,
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) {
-                colors.primary
-            } else {
-                sourceCardBorder()
-            }
-        )
-    ) {
+    SettingsRowSurface(selected = selected, enabled = enabled, onClick = onClick) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(MorpheDefaults.ContentPadding),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (selected) colors.primary else colors.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
+            ThemedIcon(
+                icon = icon,
+                size = MorpheDefaults.IconSize,
+                tint = if (selected) colors.primary else colors.onSurfaceVariant
             )
             Column(
                 modifier = Modifier.weight(1f),
@@ -3629,17 +3559,14 @@ private fun SettingsOptionCard(
             ) {
                 Text(
                     title,
-                    fontWeight = FontWeight.Bold,
-                    color = if (selected) colors.primary else colors.onSurface
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.onSurface
                 )
                 Text(
                     description,
-                    color = if (selected) {
-                        colors.primary.copy(alpha = 0.78f)
-                    } else {
-                        colors.onSurfaceVariant
-                    },
-                    style = MaterialTheme.typography.bodySmall
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
             RadioDot(selected = selected)
@@ -3660,49 +3587,36 @@ private fun SettingsDropdownCard(
     onClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .clickable(onClick = onClick),
-        shape = shape,
-        color = sourceCardFill(),
-        contentColor = colors.onSurface,
-        border = BorderStroke(1.dp, sourceCardBorder())
-    ) {
+    SettingsRowSurface(onClick = onClick) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(MorpheDefaults.ContentPadding),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = colors.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
-            )
+            ThemedIcon(icon = icon, size = MorpheDefaults.IconSize)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     title,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     color = colors.onSurface
                 )
                 Text(
                     value,
-                    color = colors.primary,
-                    style = MaterialTheme.typography.bodySmall
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
             Icon(
                 imageVector = Icons.Outlined.ArrowDropDown,
                 contentDescription = "Change default source",
-                tint = colors.onSurfaceVariant
+                tint = colors.primary,
+                modifier = Modifier.size(MorpheDefaults.IconSize)
             )
         }
     }
@@ -3714,39 +3628,37 @@ private fun SettingsStorageCard(
     downloadsBytes: Long,
     onClear: () -> Unit
 ) {
-    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = shape,
-        color = sourceCardFill(),
-        border = BorderStroke(1.dp, sourceCardBorder())
-    ) {
+    SettingsRowSurface {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Outlined.DeleteOutline,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(MorpheDefaults.IconSize)
                 )
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Text("Clear storage, cache & downloads", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Clear storage, cache & downloads",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
                     Text(
                         text = "Removes both the cache copies and the visible Downloads copies.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
                 HelperOutlinedButton(
@@ -3755,9 +3667,7 @@ private fun SettingsStorageCard(
                     modifier = Modifier.widthIn(min = 96.dp)
                 )
             }
-            androidx.compose.material3.HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-            )
+            MorpheDivider(fullWidth = true)
             StorageInfoLine(
                 icon = Icons.Outlined.SdStorage,
                 label = "Helper cache",
@@ -3780,14 +3690,13 @@ private fun StorageInfoLine(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
+        ThemedIcon(
+            icon = icon,
+            size = MorpheDefaults.IconSizeSmall,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = label,
@@ -3829,49 +3738,41 @@ private fun SettingSwitchRow(
     onCheckedChange: (Boolean) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = shape,
-        // Like the option cards: the switch card tints when the toggle is on.
-        color = if (checked) colors.primary.copy(alpha = 0.16f) else sourceCardFill(),
-        border = BorderStroke(
-            width = if (checked) 1.5.dp else 1.dp,
-            color = if (checked) colors.primary else sourceCardBorder()
-        )
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MorpheDefaults.SettingsCornerRadius))
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
+        shape = RoundedCornerShape(MorpheDefaults.SettingsCornerRadius),
+        color = colors.surfaceColorAtElevation(3.dp),
+        contentColor = colors.onSurface,
+        tonalElevation = 1.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(MorpheDefaults.ContentPadding),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (checked) colors.primary else colors.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
-            )
+            ThemedIcon(icon = icon, size = MorpheDefaults.IconSize)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     title,
-                    fontWeight = FontWeight.Bold,
-                    color = if (checked) colors.primary else colors.onSurface
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.onSurface
                 )
                 Text(
                     description,
                     color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange
-            )
+            MorpheToggleSwitch(checked = checked, onCheckedChange = null)
         }
     }
 }
@@ -3885,39 +3786,29 @@ private fun SettingTextFieldRow(
     onValueChange: (String) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = shape,
-        color = sourceCardFill(),
-        border = BorderStroke(1.dp, sourceCardBorder())
-    ) {
+    SettingsRowSurface {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
         ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = colors.onSurfaceVariant,
-                    modifier = Modifier.size(22.dp)
-                )
+                ThemedIcon(icon = icon, size = MorpheDefaults.IconSize)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         title,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
                         color = colors.onSurface
                     )
                     Text(
                         description,
                         color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
             }
@@ -4134,18 +4025,22 @@ private fun SourceToggleRow(
     onToggle: (Boolean) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(HelperDefaults.CardCornerRadius)
+    val shape = RoundedCornerShape(MorpheDefaults.SettingsCornerRadius)
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .toggleable(value = enabled, role = Role.Switch, onValueChange = onToggle),
         shape = shape,
-        color = sourceCardFill(),
-        border = BorderStroke(1.dp, sourceCardBorder())
+        color = colors.surfaceColorAtElevation(3.dp),
+        contentColor = colors.onSurface,
+        tonalElevation = 1.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = MorpheDefaults.ContentPadding, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             SourceAvatar(source = source, size = 32.dp)
@@ -4155,7 +4050,8 @@ private fun SourceToggleRow(
             ) {
                 Text(
                     text = source.label,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     color = if (enabled) colors.onSurface else colors.onSurfaceVariant.copy(alpha = 0.7f)
                 )
                 Text(
@@ -4164,10 +4060,7 @@ private fun SourceToggleRow(
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            Switch(
-                checked = enabled,
-                onCheckedChange = onToggle
-            )
+            MorpheToggleSwitch(checked = enabled, onCheckedChange = null)
         }
     }
 }
@@ -4177,8 +4070,11 @@ private fun EmptyLaunchState(
     onOpenMorphe: () -> Unit,
     onFindApps: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)) {
-        InfoCard("Open this helper from Morphe Manager when it asks for an original APK.")
+    Column(verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)) {
+        MorpheEmptyState(
+            message = "Open this helper from Morphe Manager when it asks for an original APK.",
+            icon = Icons.Outlined.Download
+        )
         HelperButton(
             text = "Open Morphe Manager",
             onClick = onOpenMorphe,
@@ -4221,35 +4117,47 @@ private fun CompactPill(
     iconRotation: Float = 0f
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(50)
+    val shape = MorpheDefaults.PillShape
     Surface(
-        modifier = Modifier.clip(shape).clickable(onClick = onClick),
+        modifier = Modifier
+            .height(MorpheDefaults.PillHeight)
+            .clip(shape)
+            .clickable(onClick = onClick),
         shape = shape,
-        color = if (selected) colors.primary.copy(alpha = 0.16f) else sourceCardFill(),
+        color = if (selected) colors.surfaceVariant else Color.Transparent,
         contentColor = colors.onSurface,
         border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) colors.primary else sourceCardBorder()
+            width = if (selected) 1.5.dp else 0.5.dp,
+            color = colors.onSurface.copy(alpha = if (selected) 0.5f else 0.2f)
         )
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = MorpheDefaults.ContentPaddingSmall + 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label.ifBlank { null },
-                tint = if (selected) colors.primary else colors.onSurfaceVariant,
+                tint = if (selected) {
+                    colors.onSurface
+                } else {
+                    colors.onSurface.copy(alpha = 0.4f)
+                },
                 modifier = Modifier
-                    .size(14.dp)
+                    .size(MorpheDefaults.IconSizeSmall)
                     .rotate(iconRotation)
             )
             if (label.isNotBlank()) {
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected) {
+                        colors.onSurface
+                    } else {
+                        colors.onSurface.copy(alpha = 0.5f)
+                    },
                     maxLines = 1
                 )
             }
@@ -4610,14 +4518,14 @@ private fun AppBrowserRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
+            .clip(RoundedCornerShape(MorpheDefaults.SettingsCornerRadius))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
-        color = sourceCardFill(),
-        border = BorderStroke(1.dp, sourceCardBorder())
+        shape = RoundedCornerShape(MorpheDefaults.SettingsCornerRadius),
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+        tonalElevation = 1.dp
     ) {
         Row(
-            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            modifier = Modifier.padding(start = MorpheDefaults.ContentPadding, end = 6.dp, top = 10.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -4628,7 +4536,8 @@ private fun AppBrowserRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = app.name,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -4636,7 +4545,7 @@ private fun AppBrowserRow(
                 Text(
                     text = app.packageName,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -4835,7 +4744,7 @@ private fun AppDetailView(
         }
         if (app.versions.isNotEmpty()) {
             item {
-                SectionTitle("Versions")
+                SectionTitle("Versions", Icons.Outlined.History)
                 Text(
                     text = app.versions.joinToString(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -4847,7 +4756,7 @@ private fun AppDetailView(
             item { InfoCard("No patch sources listed for this app.") }
         } else {
             item {
-                SectionTitle("Sources")
+                SectionTitle("Sources", Icons.Outlined.Dns)
             }
             items(app.sources, key = { it.repo }) { source ->
                 AppSourceCard(
@@ -5063,30 +4972,49 @@ private fun HelperBoltButton(
     fastMode: Boolean,
     onClick: () -> Unit
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    OutlinedButton(
+    HelperIconButton(
+        icon = Icons.Outlined.Bolt,
+        contentDescription = if (fastMode) "Fast Mode on" else "Fast Mode off",
         onClick = onClick,
-        modifier = Modifier.size(HelperDefaults.ButtonHeight),
-        shape = RoundedCornerShape(HelperDefaults.ButtonCornerRadius),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = if (fastMode) primary.copy(alpha = 0.28f) else Color.Transparent,
-            contentColor = if (fastMode) {
-                primary
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-            }
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (fastMode) primary.copy(alpha = 0.6f) else primary.copy(alpha = 0.32f)
-        ),
-        contentPadding = PaddingValues(0.dp)
+        selected = fastMode
+    )
+}
+
+/**
+ * Square glass button used by the header row and other single-icon actions,
+ * matching the manager's glass-button family (16dp shape, 48dp touch target).
+ */
+@Composable
+private fun HelperIconButton(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    tint: Color? = null
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val contentColor = tint ?: if (selected) primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
+    val interactionSource = remember { MutableInteractionSource() }
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .size(MorpheDefaults.GlassButtonHeight)
+            .clip(RoundedCornerShape(MorpheDefaults.CardCornerRadius))
+            .pressScale(interactionSource),
+        shape = RoundedCornerShape(MorpheDefaults.CardCornerRadius),
+        color = if (selected) primary.copy(alpha = 0.28f) else Color.Transparent,
+        contentColor = contentColor,
+        border = BorderStroke(1.dp, primary.copy(alpha = if (selected) 0.6f else 0.32f)),
+        interactionSource = interactionSource
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Bolt,
-            contentDescription = if (fastMode) "Fast Mode on" else "Fast Mode off",
-            modifier = Modifier.size(HelperDefaults.IconSizeSmall)
-        )
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(MorpheDefaults.IconSizeSmall)
+            )
+        }
     }
 }
 
@@ -5222,24 +5150,12 @@ private fun HelperHeaderIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    OutlinedButton(
+    HelperIconButton(
+        icon = icon,
+        contentDescription = contentDescription,
         onClick = onClick,
-        modifier = modifier.size(HelperDefaults.ButtonHeight),
-        shape = RoundedCornerShape(HelperDefaults.ButtonCornerRadius),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-        ),
-        border = BorderStroke(1.dp, primary.copy(alpha = 0.32f)),
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(HelperDefaults.IconSizeSmall)
-        )
-    }
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -5247,23 +5163,11 @@ private fun HelperThemeButton(
     dark: Boolean,
     onToggle: () -> Unit
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    OutlinedButton(
-        onClick = onToggle,
-        modifier = Modifier.size(HelperDefaults.ButtonHeight),
-        shape = RoundedCornerShape(HelperDefaults.ButtonCornerRadius),
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-        ),
-        border = BorderStroke(1.dp, primary.copy(alpha = 0.32f)),
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        Icon(
-            imageVector = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-            contentDescription = if (dark) "Switch to light theme" else "Switch to dark theme",
-            modifier = Modifier.size(HelperDefaults.IconSizeSmall)
-        )
-    }
+    HelperIconButton(
+        icon = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+        contentDescription = if (dark) "Switch to light theme" else "Switch to dark theme",
+        onClick = onToggle
+    )
 }
 
 @Composable
@@ -5408,12 +5312,13 @@ private fun AppInfoStatCard(
     modifier: Modifier = Modifier,
     subtext: String? = null
 ) {
-    val shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius)
+    val shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius)
+    // The manager's BundleInfoCard: a tinted container holding a small label
+    // above a medium-weight value.
     Surface(
         modifier = modifier.clip(shape),
         shape = shape,
-        color = sourceCardFill(),
-        border = BorderStroke(1.dp, sourceCardBorder())
+        color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Column(
             modifier = Modifier
@@ -5423,13 +5328,14 @@ private fun AppInfoStatCard(
         ) {
             Text(
                 text = label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.labelSmall
             )
             Text(
                 text = value,
-                fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -5826,13 +5732,8 @@ private fun AnimatedExpand(
 }
 
 @Composable
-private fun SectionTitle(title: String) {
-    Text(
-        text = title,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.SemiBold
-    )
+private fun SectionTitle(title: String, icon: ImageVector? = null) {
+    MorpheSectionTitle(text = title, icon = icon)
 }
 
 @Composable
@@ -5946,7 +5847,7 @@ private fun SourcePickerFlow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SectionTitle("Download source")
+                    SectionTitle("Download source", Icons.Outlined.Dns)
                     if (!sourcesExpanded) {
                         Text(
                             text = "· ${groups.size}",
@@ -6234,19 +6135,16 @@ private fun SourceMenuHeader(title: String) {
 private var helperDarkTheme by mutableStateOf(true)
 private var helperDynamicColors by mutableStateOf(false)
 
+/**
+ * Fill used by the list/selection cards (sources, dropdown rows, stat cards).
+ * Matches the manager's card surface so every row sits on the same neutral tone
+ * in both themes instead of a hand-tuned per-theme shade.
+ */
 @Composable
-private fun sourceCardFill(): Color = when {
-    helperDynamicColors -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-    helperDarkTheme -> Color(0xFF1C1E22)
-    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-}
+private fun sourceCardFill(): Color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
 
 @Composable
-private fun sourceCardBorder(): Color = when {
-    helperDynamicColors -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-    helperDarkTheme -> Color(0xFF2A2D33)
-    else -> MaterialTheme.colorScheme.outlineVariant
-}
+private fun sourceCardBorder(): Color = MaterialTheme.colorScheme.outlineVariant
 
 @Composable
 private fun SourceCard(
@@ -6406,14 +6304,12 @@ private fun SourceBottomBar(
     onCancel: () -> Unit
 ) {
     Column {
-        androidx.compose.material3.HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-        )
+        MorpheDivider(fullWidth = true)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = HelperDefaults.ContentPadding, vertical = 10.dp),
+                .padding(horizontal = MorpheDefaults.ContentPadding, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -6427,19 +6323,22 @@ private fun SourceBottomBar(
                 contentDescription = "Cancel",
                 onClick = onCancel
             )
+            val primaryInteractionSource = remember { MutableInteractionSource() }
             Button(
                 onClick = action.run,
                 enabled = action.enabled,
                 modifier = Modifier
                     .weight(1f)
-                    .height(HelperDefaults.ButtonHeight),
-                shape = RoundedCornerShape(HelperDefaults.ButtonCornerRadius),
+                    .height(MorpheDefaults.DialogButtonHeight)
+                    .pressScale(primaryInteractionSource, enabled = action.enabled),
+                interactionSource = primaryInteractionSource,
+                shape = RoundedCornerShape(MorpheDefaults.CardCornerRadius),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
                     contentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.48f)),
-                contentPadding = PaddingValues(horizontal = HelperDefaults.ContentPadding)
+                contentPadding = PaddingValues(horizontal = MorpheDefaults.ContentPadding)
             ) {
                 if (action.loading) {
                     CircularProgressIndicator(
@@ -6450,11 +6349,16 @@ private fun SourceBottomBar(
                     Icon(
                         imageVector = action.icon,
                         contentDescription = null,
-                        modifier = Modifier.size(HelperDefaults.IconSizeSmall)
+                        modifier = Modifier.size(MorpheDefaults.IconSizeSmall)
                     )
                 }
-                Spacer(Modifier.width(HelperDefaults.ContentPaddingSmall))
-                Text(action.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(MorpheDefaults.ContentPaddingSmall))
+                Text(
+                    action.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -6466,24 +6370,11 @@ private fun SourceSquareButton(
     contentDescription: String,
     onClick: () -> Unit
 ) {
-    val primary = MaterialTheme.colorScheme.primary
-    OutlinedButton(
-        onClick = onClick,
-        modifier = Modifier.size(HelperDefaults.ButtonHeight),
-        shape = RoundedCornerShape(HelperDefaults.ButtonCornerRadius),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-        ),
-        border = BorderStroke(1.dp, primary.copy(alpha = 0.32f)),
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(HelperDefaults.IconSizeSmall)
-        )
-    }
+    HelperIconButton(
+        icon = icon,
+        contentDescription = contentDescription,
+        onClick = onClick
+    )
 }
 
 private enum class SourceSubTab(
@@ -6543,7 +6434,7 @@ private fun SourcePageContent(
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionTitle("Version type")
+            SectionTitle("Version type", Icons.Outlined.Tune)
             VersionTypeRow(
                 tabs = subTabs,
                 selected = safeTab,
@@ -6660,56 +6551,47 @@ private fun IconTabCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(16.dp)
+    // The manager's CardSelectorRow: the selected mode is carried by the fill
+    // and a stronger border rather than a colour wash.
     Surface(
         modifier = modifier
             .clip(shape)
             .clickable(onClick = onClick),
         shape = shape,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-        } else {
-            sourceCardFill()
-        },
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        color = if (selected) colors.surfaceVariant else Color.Transparent,
+        contentColor = colors.onSurface,
         border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                sourceCardBorder()
-            }
+            width = if (selected) 1.5.dp else 0.5.dp,
+            color = colors.onSurface.copy(alpha = if (selected) 0.5f else 0.2f)
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 12.dp),
+                .padding(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
+            ThemedIcon(
+                icon = icon,
+                size = MorpheDefaults.IconSize,
                 tint = if (selected) {
-                    MaterialTheme.colorScheme.primary
+                    colors.onSurface
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.size(20.dp)
+                    colors.onSurface.copy(alpha = 0.4f)
+                }
             )
             Text(
                 text = label,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelSmall,
+                // labelLarge keeps four-in-a-row tab labels on one line at phone widths.
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
+                color = if (selected) colors.onSurface else colors.onSurface.copy(alpha = 0.5f)
             )
         }
     }
@@ -6767,7 +6649,13 @@ private fun AboutModeCard(tab: SourceSubTab) {
         SourceSubTab.History ->
             "Lists every version this source offers  pick any of them and download it."
     }
-    HelperCard(cornerRadius = HelperDefaults.CompactCornerRadius) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius)),
+        shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.05f)
+    ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
@@ -6793,16 +6681,14 @@ private fun AboutModeCard(tab: SourceSubTab) {
                 )
             }
             AnimatedExpand(visible = expanded) {
-                androidx.compose.material3.HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                )
+                MorpheDivider(fullWidth = true)
                 Text(
                     text = description,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(
-                        horizontal = HelperDefaults.ContentPadding,
-                        vertical = 14.dp
+                        horizontal = MorpheDefaults.ContentPadding,
+                        vertical = MorpheDefaults.ContentPadding
                     )
                 )
             }
@@ -6982,14 +6868,16 @@ private fun CandidateResolveSection(
 
 @Composable
 private fun InfoCard(text: String) {
-    HelperCard(
-        cornerRadius = HelperDefaults.CompactCornerRadius,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
         Text(
             text = text,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(HelperDefaults.ContentPadding)
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(MorpheDefaults.ContentPadding)
         )
     }
 }
