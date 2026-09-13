@@ -91,6 +91,83 @@ class HelperRequestTest {
         assertFalse(request.matchesRequestedVersionStrict("2.5.0.6", 721))
     }
 
+    // ---- secondary / variant builds ----
+
+    @Test
+    fun variantBuildMarker_detectsSecondarySuffixInVersionUrlAndFileName() {
+        assertTrue("21.36.45-SECONDARY".hasVariantBuildMarker())
+        assertTrue("21.36.45-secondary".hasVariantBuildMarker())
+        assertTrue("21_36_45_SECONDARY".hasVariantBuildMarker())
+        assertTrue(
+            "https://www.apkmirror.com/apk/whatsapp/whatsapp/whatsapp-21-36-45-secondary-release/"
+                .hasVariantBuildMarker()
+        )
+        assertTrue("com.whatsapp_21.36.45-SECONDARY-apkmirror.apk".hasVariantBuildMarker())
+    }
+
+    @Test
+    fun variantBuildMarker_ignoresPlainBuildsAndUnrelatedNames() {
+        assertFalse("21.36.45".hasVariantBuildMarker())
+        assertFalse((null as String?).hasVariantBuildMarker())
+        // An app that merely has "secondary" in its slug is not a variant build.
+        assertFalse(
+            "https://example.com/apk/secondary/secondary-1-2-3-release/".hasVariantBuildMarker()
+        )
+    }
+
+    @Test
+    fun versionNameEquals_rejectsSecondaryBuildOfPlainVersion() {
+        assertFalse("21.36.45-SECONDARY".versionNameEquals("21.36.45"))
+        assertFalse("21.36.45".versionNameEquals("21.36.45-SECONDARY"))
+        assertTrue("21.36.45-SECONDARY".versionNameEquals("21.36.45-secondary"))
+    }
+
+    @Test
+    fun requestedMatch_rejectsSecondaryBuildUnlessRequested() {
+        val plain = testRequest(versionName = "21.36.45")
+        assertFalse(plain.matchesRequestedVersion("21.36.45-SECONDARY", null))
+        assertFalse(plain.matchesRequestedVersionStrict("21.36.45-SECONDARY", null))
+
+        val secondary = testRequest(versionName = "21.36.45-SECONDARY")
+        assertTrue(secondary.matchesRequestedVersionStrict("21.36.45-SECONDARY", null))
+    }
+
+    @Test
+    fun isRequestedMatch_rejectsSecondaryBuildSharingVersionNumber() {
+        // APKMirror parses the suffix out of the release slug, so the version
+        // number looks normal  the release URL is the only signal.
+        val request = testRequest(versionName = "21.36.45")
+        val secondary = secondaryCandidate()
+
+        assertTrue(secondary.hasVariantBuildMarker)
+        assertFalse(request.isRequestedMatch(secondary))
+        assertFalse(request.matchesRequestedVersionStrict(secondary))
+    }
+
+    @Test
+    fun requestedVariantBuild_letsAnExplicitSecondaryRequestThrough() {
+        val request = testRequest(versionName = "21.36.45-SECONDARY")
+        val secondary = secondaryCandidate()
+
+        assertTrue(request.requestsVariantBuild)
+        assertTrue(request.isRequestedMatch(secondary))
+        assertTrue(request.matchesRequestedVersionStrict(secondary))
+    }
+
+    private fun secondaryCandidate() = DownloadCandidate(
+        source = DownloadSource.APK_MIRROR,
+        name = "WhatsApp",
+        packageName = "com.example.app",
+        versionName = "21.36.45",
+        versionCode = null,
+        url = "https://www.apkmirror.com/apk/whatsapp/whatsapp/whatsapp-21-36-45-secondary-release/",
+        fileKind = "web",
+        option = CandidateOption.REQUESTED,
+        directDownload = false,
+        versionStatus = VersionStatus.REQUESTED,
+        formatMatches = true
+    )
+
     // ---- stale-result scoping (PendingDownloadResult.belongsTo) ----
 
     private fun pendingResult(

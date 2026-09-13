@@ -359,16 +359,21 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
             .toList()
     }
 
-    private fun apkMirrorLatestReleaseUrl(releaseLinks: List<String>): String? =
-        releaseLinks
+    internal fun apkMirrorLatestReleaseUrl(releaseLinks: List<String>): String? {
+        // "-SECONDARY" is an alternate package of the same version Morphe
+        // cannot patch, so it must never be offered as "latest".
+        val patchable = releaseLinks.filterNot { it.hasVariantBuildMarker() }
+        if (patchable.isEmpty()) return null
+        return patchable
             .filterNot { it.contains("alpha", ignoreCase = true) || it.contains("beta", ignoreCase = true) }
-            .ifEmpty { releaseLinks }
+            .ifEmpty { patchable }
             .maxWithOrNull { left, right ->
                 compareVersionNames(
                     apkMirrorVersionFromReleaseUrl(left),
                     apkMirrorVersionFromReleaseUrl(right)
                 )
             }
+    }
 
     private fun apkMirrorRequestedReleaseUrl(
         request: HelperRequest,
@@ -381,16 +386,12 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
         request.sourceHintUrlsFor(DownloadSource.APK_MIRROR)
             .asSequence()
             .mapNotNull(::apkMirrorAbsoluteUrl)
-            .firstOrNull { url ->
-                apkMirrorLooksLikeReleaseUrl(url) &&
-                    requestedVersions.any { version -> apkMirrorReleaseUrlMatchesVersion(url, version) }
-            }
+            .filter(::apkMirrorLooksLikeReleaseUrl)
+            .toList()
+            .let { urls -> apkMirrorPreferredReleaseUrl(urls, requestedVersions) }
             ?.let { return it }
 
-        apkMirrorReleaseLinks(appDoc, appPageUrl)
-            .firstOrNull { url ->
-                requestedVersions.any { version -> apkMirrorReleaseUrlMatchesVersion(url, version) }
-            }
+        apkMirrorPreferredReleaseUrl(apkMirrorReleaseLinks(appDoc, appPageUrl), requestedVersions)
             ?.let { return it }
 
         val category = appPageUrl.trimEnd('/').substringAfterLast('/').takeIf(String::isNotBlank)
@@ -411,14 +412,27 @@ internal class ApkMirrorParser(private val ctx: SourceParserContext) : ApkSource
                 continue
             }
 
-            apkMirrorReleaseLinks(doc)
-                .firstOrNull { url ->
-                    requestedVersions.any { version -> apkMirrorReleaseUrlMatchesVersion(url, version) }
-                }
+            apkMirrorPreferredReleaseUrl(apkMirrorReleaseLinks(doc), requestedVersions)
                 ?.let { return it }
         }
 
         return null
+    }
+
+    /**
+     * Among release URLs matching one of [requestedVersions], prefer the normal
+     * build. APKMirror publishes alternate "-SECONDARY" builds of the same
+     * version which Morphe cannot patch; they parse to the same version number,
+     * so without this the first-match race hands one to the caller.
+     */
+    internal fun apkMirrorPreferredReleaseUrl(
+        urls: List<String>,
+        requestedVersions: List<String>
+    ): String? {
+        val matching = urls.filter { url ->
+            requestedVersions.any { version -> apkMirrorReleaseUrlMatchesVersion(url, version) }
+        }
+        return matching.firstOrNull { !it.hasVariantBuildMarker() } ?: matching.firstOrNull()
     }
 
     private fun apkMirrorUploadsUrl(appPageUrl: String): String {

@@ -863,7 +863,13 @@ class MainActivity : ComponentActivity() {
         }
 
         return buildList {
-            addAll(candidates.filter { it.option == CandidateOption.LATEST })
+            addAll(
+                candidates
+                    .filter { it.option == CandidateOption.LATEST }
+                    // "-SECONDARY" builds are alternate packages Morphe cannot
+                    // patch: don't offer them unless the request asked for one.
+                    .filter { request.requestsVariantBuild || !it.hasVariantBuildMarker }
+            )
             if (none { it.option == CandidateOption.LATEST }) {
                 parsers[source]?.latestFallbackCandidate(request)?.let(::add)
             }
@@ -1390,6 +1396,11 @@ class MainActivity : ComponentActivity() {
         val requested = request.requestedVersionName
         val newer = candidates
             .filter { it.directDownload && it.versionName != null }
+            // A "-SECONDARY" build ties the requested version on its numbers
+            // and then wins the string tiebreak, so it would be reported as
+            // "latest"  but Morphe cannot patch those builds. Never
+            // auto-select one unless the request itself asked for the variant.
+            .filter { request.requestsVariantBuild || !it.hasVariantBuildMarker }
             .filter { candidate ->
                 requested == null || compareVersionNames(candidate.versionName, requested) > 0
             }
@@ -1412,7 +1423,7 @@ class MainActivity : ComponentActivity() {
             // outside the request is surfaced as a mismatch the user can
             // accept or skip  never silently downloaded.
             candidate.directDownload &&
-                request.matchesRequestedVersionStrict(candidate.versionName, candidate.versionCode)
+                request.matchesRequestedVersionStrict(candidate)
         }
         if (exact != null) return FastModeFindResult.Exact(exact)
 
@@ -1420,6 +1431,9 @@ class MainActivity : ComponentActivity() {
         // hand it to the loop so it can ask the user before proceeding.
         val mismatch = outcome.candidates.firstOrNull { candidate ->
             candidate.directDownload &&
+                // A secondary build is a different package, not a build
+                // mismatch the user should be asked to accept.
+                (request.requestsVariantBuild || !candidate.hasVariantBuildMarker) &&
                 request.requestedVersionName != null &&
                 candidate.versionName != null &&
                 candidate.versionName.versionNameEquals(request.requestedVersionName) &&
@@ -8466,6 +8480,10 @@ internal data class HelperRequest(
     val hasRequestedVersionRequest: Boolean
         get() = requestedVersionName != null || requestedVersionCodes.isNotEmpty()
 
+    /** True when the request itself asks for a variant build (e.g. "...-SECONDARY"). */
+    val requestsVariantBuild: Boolean
+        get() = requestedVersionName.hasVariantBuildMarker()
+
     val hasKnownVersionRequest: Boolean
         get() = requestedVersionName != null ||
             requestedVersionCodes.isNotEmpty() ||
@@ -8478,8 +8496,12 @@ internal data class HelperRequest(
             versionCodeSummary?.let { "build $it" }
         ).joinToString(" ").ifBlank { "any compatible version" }
 
-    fun isRequestedMatch(candidate: DownloadCandidate): Boolean =
-        matchesRequestedVersion(candidate.versionName, candidate.versionCode)
+    fun isRequestedMatch(candidate: DownloadCandidate): Boolean {
+        // A secondary build must not satisfy a plain-version request just
+        // because its version number or code happens to match.
+        if (candidate.hasVariantBuildMarker && !requestsVariantBuild) return false
+        return matchesRequestedVersion(candidate.versionName, candidate.versionCode)
+    }
 
     fun versionStatus(candidateVersionName: String?, candidateVersionCode: Long?): VersionStatus {
         if (matchesRequestedVersion(candidateVersionName, candidateVersionCode)) return VersionStatus.REQUESTED
@@ -8519,8 +8541,10 @@ internal data class HelperRequest(
     fun matchesRequestedVersion(candidateVersionName: String?, candidateVersionCode: Long?): Boolean {
         val requestedCodes = requestedVersionCodes
         if (versionName == null && requestedCodes.isEmpty()) return false
+        if (candidateVersionName.hasVariantBuildMarker() && !requestsVariantBuild) return false
 
-        val nameMatches = requestedVersionName != null && candidateVersionName.versionNameEquals(requestedVersionName)
+        val nameMatches = requestedVersionName != null && candidateVersionName
+            .versionNameEquals(requestedVersionName, ignoreVariantMarker = requestsVariantBuild)
         val codeMatches = requestedCodes.isNotEmpty() &&
             candidateVersionCode != null &&
             candidateVersionCode > 0L &&
@@ -8539,10 +8563,14 @@ internal data class HelperRequest(
      */
     fun matchesRequestedVersionStrict(candidateVersionName: String?, candidateVersionCode: Long?): Boolean {
         if (versionName == null && requestedVersionCodes.isEmpty()) return false
+        if (candidateVersionName.hasVariantBuildMarker() && !requestsVariantBuild) return false
 
         val nameRequired = requestedVersionName != null
         val nameMatches = candidateVersionName != null &&
-            candidateVersionName.versionNameEquals(requestedVersionName)
+            candidateVersionName.versionNameEquals(
+                requestedVersionName,
+                ignoreVariantMarker = requestsVariantBuild
+            )
         val codeRequired = requestedVersionCodes.isNotEmpty() && candidateVersionCode != null
         val codeMatches = requestedVersionCodes.isEmpty() ||
             candidateVersionCode == null ||
@@ -8550,6 +8578,15 @@ internal data class HelperRequest(
 
         return (!nameRequired || nameMatches) && (!codeRequired || codeMatches)
     }
+
+    /**
+     * [matchesRequestedVersionStrict] for a whole candidate: a variant build
+     * ("-SECONDARY") the request didn't ask for is rejected as well, which the
+     * parsed version number alone can't reveal.
+     */
+    fun matchesRequestedVersionStrict(candidate: DownloadCandidate): Boolean =
+        matchesRequestedVersionStrict(candidate.versionName, candidate.versionCode) &&
+            (requestsVariantBuild || !candidate.hasVariantBuildMarker)
 
     fun sourceHintUrlsFor(source: DownloadSource): List<String> {
         val needles = when (source) {
@@ -8789,6 +8826,20 @@ internal data class DownloadCandidate(
     val captchaUrl: String? = null
 ) {
     val sortIndex: Int get() = source.sortIndex
+
+    /**
+     * True when the candidate itself carries a variant marker such as
+     * "-SECONDARY"  in the parsed version, the release URL, the variant label
+     * or the file name. The version number alone is not enough: APKMirror
+     * parses the suffix out of the release slug, so the URL and file name are
+     * the only reliable signals.
+     */
+    val hasVariantBuildMarker: Boolean
+        get() = versionName.hasVariantBuildMarker() ||
+            url.hasVariantBuildMarker() ||
+            variantLabel.hasVariantBuildMarker() ||
+            files.any { it.fileName.hasVariantBuildMarker() || it.url.hasVariantBuildMarker() }
+
     val versionDisplay: String
         get() = when {
             versionName != null && versionCode != null -> "$versionName ($versionCode)"
@@ -9396,10 +9447,61 @@ internal fun String.apkMirrorVersionSlug(): String =
         .replace(Regex("-+"), "-")
         .trim('-')
 
-internal fun String?.versionNameEquals(other: String?): Boolean {
+/**
+ * Variant suffixes some sources publish next to a normal release  e.g.
+ * APKMirror's "21.36.45-SECONDARY" build. Such a build shares the version
+ * number with the normal release but is an alternate package Morphe cannot
+ * patch, so it must never satisfy a request for the plain version (nor the
+ * other way around).
+ */
+private val VERSION_VARIANT_MARKERS = listOf("secondary")
+
+/** Matches a variant marker that directly follows a version number ("21.36.45-SECONDARY"). */
+private val VERSION_VARIANT_SUFFIX_REGEX = Regex(
+    """(?i)(?<=\d)[\s._-]*(?:${VERSION_VARIANT_MARKERS.joinToString("|")})\b"""
+)
+
+/**
+ * True when a version string, release URL or file name carries a known variant
+ * marker such as "-SECONDARY". The marker has to follow a number-bearing token
+ * so release slugs like ".../whatsapp-21-36-45-secondary-release/" and file
+ * names like "app_21.36.45-SECONDARY.apk" are detected, while an app that is
+ * merely called "Secondary" is not.
+ */
+internal fun String?.hasVariantBuildMarker(): Boolean {
+    if (this.isNullOrBlank()) return false
+    val tokens = lowercase(Locale.US)
+        .split(Regex("""[^a-z0-9]+"""))
+        .filter(String::isNotEmpty)
+    return tokens.withIndex().any { (index, token) ->
+        index > 0 &&
+            token in VERSION_VARIANT_MARKERS &&
+            tokens[index - 1].any(Char::isDigit)
+    }
+}
+
+/**
+ * The version name with any variant marker suffix removed
+ * ("21.36.45-SECONDARY"  "21.36.45").
+ */
+internal fun String.withoutVariantMarker(): String =
+    replace(VERSION_VARIANT_SUFFIX_REGEX, "")
+
+internal fun String?.versionNameEquals(
+    other: String?,
+    ignoreVariantMarker: Boolean = false
+): Boolean {
     if (this == null || other == null) return false
-    val left = normalizedVersionName()
-    val right = other.normalizedVersionName()
+    // A variant build shares its version number with the normal release but is
+    // a different package: the marker must match on both sides before the
+    // numbers are compared. Pass [ignoreVariantMarker] when the request itself
+    // asked for the variant, so it also matches a source that parses the
+    // suffix out of its release slug and reports only the plain number.
+    val leftSource = if (ignoreVariantMarker) withoutVariantMarker() else this
+    val rightSource = if (ignoreVariantMarker) other.withoutVariantMarker() else other
+    if (leftSource.hasVariantBuildMarker() != rightSource.hasVariantBuildMarker()) return false
+    val left = leftSource.normalizedVersionName()
+    val right = rightSource.normalizedVersionName()
     if (left.isBlank() || right.isBlank()) return false
     if (left == right) return true
 

@@ -1127,6 +1127,14 @@ internal fun validateDownloadedArtifact(
             add("Package: requested ${request.packageName}, found ${metadata.packageName}")
         }
 
+        // A secondary build (e.g. APKMirror's "-SECONDARY") shares its version
+        // number with the normal release but is a different package Morphe
+        // cannot patch. The source URL/file name betrays it even when the
+        // parsed version and the downloaded manifest look normal.
+        if (candidate.hasVariantBuildMarker && !request.requestsVariantBuild) {
+            add("Variant: the source offered a secondary build Morphe cannot patch")
+        }
+
         if (candidate.option == CandidateOption.REQUESTED) {
             val requestedNames = request.knownVersionNames
             if (

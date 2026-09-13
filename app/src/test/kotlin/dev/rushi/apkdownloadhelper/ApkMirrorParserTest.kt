@@ -353,6 +353,38 @@ class ApkMirrorParserTest {
     }
 
     @Test
+    fun requestedReleaseUrl_prefersNormalBuildOverSecondary() {
+        val secondary =
+            "https://www.apkmirror.com/apk/whatsapp/whatsapp/whatsapp-21-36-45-secondary-release/"
+        val plain =
+            "https://www.apkmirror.com/apk/whatsapp/whatsapp/whatsapp-21-36-45-release/"
+        // Both slug variants parse to 21.36.45; the normal build must win even
+        // when the secondary one is listed first.
+        assertEquals(
+            plain,
+            versionParser().apkMirrorPreferredReleaseUrl(listOf(secondary, plain), listOf("21.36.45"))
+        )
+        // A request that explicitly asks for the variant still resolves it.
+        assertEquals(
+            secondary,
+            versionParser()
+                .apkMirrorPreferredReleaseUrl(listOf(secondary), listOf("21.36.45-SECONDARY"))
+        )
+    }
+
+    @Test
+    fun latestReleaseUrl_ignoresSecondaryBuilds() {
+        val older =
+            "https://www.apkmirror.com/apk/whatsapp/whatsapp/whatsapp-21-36-44-release/"
+        val secondary =
+            "https://www.apkmirror.com/apk/whatsapp/whatsapp/whatsapp-21-36-45-secondary-release/"
+
+        // The secondary build ties 21.36.45 and would otherwise win "latest".
+        assertEquals(older, versionParser().apkMirrorLatestReleaseUrl(listOf(secondary, older)))
+        assertEquals(null, versionParser().apkMirrorLatestReleaseUrl(listOf(secondary)))
+    }
+
+    @Test
     fun compareVersionNames_ordersCorrectly() {
         assertTrue(compareVersionNames("10.0.0", "9.9.9") > 0)
         assertTrue(compareVersionNames("2.0.1", "2.0.0") > 0)
