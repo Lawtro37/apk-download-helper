@@ -155,6 +155,7 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -4567,6 +4568,13 @@ private fun AppBrowserScreen(
     // opening an app's details and coming back — remember inside the list
     // branch would be discarded when the detail view replaces the list.
     val listState = rememberLazyListState()
+    // Read as a boolean rather than the raw scroll offset, so scrolling recomposes
+    // the chrome once per crossing instead of once per scrolled pixel.
+    val listAtTop by remember(listState) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        }
+    }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         favourites = MorpheFavourites.load(context)
@@ -4717,34 +4725,6 @@ private fun AppBrowserScreen(
                     }
                 }
                 else -> {
-                    AppDisclaimerBanner()
-                    // The same selector row the version-type and settings tabs use, so the
-                    // browser has no pill of its own to drift out of sync.
-                    MorpheSelectorRow(
-                        options = AppListTab.entries.map {
-                            MorpheSelectorOption(
-                                label = it.label,
-                                icon = it.icon,
-                                contentDescription = it.contentDescription
-                            )
-                        },
-                        selectedIndex = AppListTab.entries.indexOf(tab),
-                        onSelect = { tab = AppListTab.entries[it] },
-                        // Four labels across, so use the smaller step.
-                        labelStyle = MaterialTheme.typography.labelMedium
-                    )
-                    MorpheSelectorRow(
-                        options = AppSort.entries.map {
-                            MorpheSelectorOption(
-                                label = it.label,
-                                icon = it.icon,
-                                iconRotation = it.rotation
-                            )
-                        },
-                        selectedIndex = AppSort.entries.indexOf(sort),
-                        onSelect = { sort = AppSort.entries[it] },
-                        labelStyle = MaterialTheme.typography.labelMedium
-                    )
                     val filtered = loaded
                         .filter { app ->
                             query.isBlank() ||
@@ -4759,13 +4739,57 @@ private fun AppBrowserScreen(
                                 AppListTab.NotInstalled -> app.packageName !in installedPackages
                             }
                         }
-                        .let { apps ->
+                        .let { matches ->
                             when (sort) {
-                                AppSort.AZ -> apps.sortedBy { it.name.lowercase(Locale.US) }
-                                AppSort.ZA -> apps.sortedByDescending { it.name.lowercase(Locale.US) }
-                                AppSort.Sources -> apps.sortedByDescending { it.sourceCount }
+                                AppSort.AZ -> matches.sortedBy { it.name.lowercase(Locale.US) }
+                                AppSort.ZA -> matches.sortedByDescending { it.name.lowercase(Locale.US) }
+                                AppSort.Sources -> matches.sortedByDescending { it.sourceCount }
                             }
                         }
+                    // The disclaimer and the two selector rows are the tallest thing on
+                    // this screen, so they step aside once the list is scrolled and come
+                    // back at the top, which the "Go to top" button reaches in one tap.
+                    // An empty result keeps them regardless: with nothing left to scroll
+                    // there would be no way back to the controls.
+                    val chromeVisible = filtered.isEmpty() || listAtTop
+                    AnimatedVisibility(
+                        visible = chromeVisible,
+                        enter = MorpheAnimations.expandFadeEnter,
+                        exit = MorpheAnimations.shrinkFadeExit
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
+                        ) {
+                            AppDisclaimerBanner()
+                            // The same selector row the version-type and settings tabs use,
+                            // so the browser has no pill of its own to drift out of sync.
+                            MorpheSelectorRow(
+                                options = AppListTab.entries.map {
+                                    MorpheSelectorOption(
+                                        label = it.label,
+                                        icon = it.icon,
+                                        contentDescription = it.contentDescription
+                                    )
+                                },
+                                selectedIndex = AppListTab.entries.indexOf(tab),
+                                onSelect = { tab = AppListTab.entries[it] },
+                                // Four labels across, so use the smaller step.
+                                labelStyle = MaterialTheme.typography.labelMedium
+                            )
+                            MorpheSelectorRow(
+                                options = AppSort.entries.map {
+                                    MorpheSelectorOption(
+                                        label = it.label,
+                                        icon = it.icon,
+                                        iconRotation = it.rotation
+                                    )
+                                },
+                                selectedIndex = AppSort.entries.indexOf(sort),
+                                onSelect = { sort = AppSort.entries[it] },
+                                labelStyle = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
                     if (filtered.isEmpty()) {
                         InfoCard(
                             when (tab) {
