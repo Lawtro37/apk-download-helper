@@ -38,7 +38,12 @@ internal data class HelperSettings(
     val fastModePolicy: FastModePolicy = FastModePolicy.REQUESTED,
     val disabledSources: Set<DownloadSource> = emptySet(),
     val themeMode: ThemeMode = ThemeMode.DARK,
-    val dynamicColors: Boolean = true,
+    /** Where the palette comes from: the app's own, the wallpaper's, or neutral. */
+    val themeStyle: ThemeStyle = ThemeStyle.MORPHE,
+    /** Force pure black behind content in dark mode (OLED-friendly). */
+    val pureBlackTheme: Boolean = false,
+    /** Custom accent as `#RRGGBB`; empty keeps the style's own accent. */
+    val customAccentColor: String = "",
     val adGuardDns: Boolean = false,
     val virusTotalEnabled: Boolean = false,
     val virusTotalApiKey: String = "",
@@ -98,6 +103,30 @@ internal enum class ThemeMode(
     LIGHT(
         title = "Light",
         description = "Always use the light theme."
+    )
+}
+
+/**
+ * How the app derives its palette, mirroring the manager's own three styles.
+ *
+ * A custom accent belongs to [MORPHE] alone: the other two own their colours,
+ * [MATERIAL_YOU] taking them from the wallpaper and [MONOCHROME] having none.
+ */
+internal enum class ThemeStyle(
+    val title: String,
+    val description: String
+) {
+    MORPHE(
+        title = "Morphe",
+        description = "The app's own blue palette, light or dark. Pick your own accent below."
+    ),
+    MATERIAL_YOU(
+        title = "Material You",
+        description = "Tint the whole app from your wallpaper (Android 12+)."
+    ),
+    MONOCHROME(
+        title = "Monochrome",
+        description = "Neutral greys with no colour accent."
     )
 }
 
@@ -185,7 +214,9 @@ internal fun Context.loadHelperSettings(): HelperSettings {
             prefs.getString("theme_mode", null),
             ThemeMode.DARK
         ),
-        dynamicColors = prefs.getBoolean("dynamic_colors", true),
+        themeStyle = themeStyle(prefs),
+        pureBlackTheme = prefs.getBoolean("pure_black_theme", false),
+        customAccentColor = prefs.getString("custom_accent_color", "") ?: "",
         adGuardDns = prefs.getBoolean("adguard_dns", false),
         virusTotalEnabled = prefs.getBoolean("virus_total_enabled", false),
         virusTotalApiKey = prefs.getString("virus_total_api_key", "") ?: "",
@@ -214,7 +245,9 @@ internal fun Context.saveHelperSettings(settings: HelperSettings) {
         .putString("fast_mode_policy", settings.fastModePolicy.name)
         .putStringSet("disabled_sources", settings.disabledSources.map { it.name }.toSet())
         .putString("theme_mode", settings.themeMode.name)
-        .putBoolean("dynamic_colors", settings.dynamicColors)
+        .putString("theme_style", settings.themeStyle.name)
+        .putBoolean("pure_black_theme", settings.pureBlackTheme)
+        .putString("custom_accent_color", settings.customAccentColor)
         .putBoolean("adguard_dns", settings.adGuardDns)
         .putBoolean("virus_total_enabled", settings.virusTotalEnabled)
         .putString("virus_total_api_key", settings.virusTotalApiKey)
@@ -225,6 +258,19 @@ internal fun Context.saveHelperSettings(settings: HelperSettings) {
 
 private inline fun <reified T : Enum<T>> enumValueOrDefault(name: String?, fallback: T): T =
     name?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
+
+/**
+ * The stored colour style, or one derived from the retired `dynamic_colors`
+ * toggle so installs that predate the style selector keep the look they had.
+ */
+private fun themeStyle(prefs: android.content.SharedPreferences): ThemeStyle =
+    prefs.getString("theme_style", null)
+        ?.let { name -> ThemeStyle.entries.firstOrNull { it.name == name } }
+        ?: if (prefs.getBoolean("dynamic_colors", false)) {
+            ThemeStyle.MATERIAL_YOU
+        } else {
+            ThemeStyle.MORPHE
+        }
 
 /**
  * Rehydrate the VirusTotal rate limiter's per-minute call log from storage so

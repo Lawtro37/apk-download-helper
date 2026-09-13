@@ -93,6 +93,10 @@ import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.Colorize
+import androidx.compose.material.icons.outlined.Contrast
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Palette
@@ -150,6 +154,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -415,7 +420,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             HelperTheme(
                 themeMode = helperSettings.themeMode,
-                dynamicColors = helperSettings.dynamicColors
+                themeStyle = helperSettings.themeStyle,
+                pureBlackTheme = helperSettings.pureBlackTheme,
+                accentColorHex = helperSettings.customAccentColor
             ) {
                 // Ping every web source at launch so the Settings Health tab
                 // reflects current reachability instead of the last resolve.
@@ -2100,7 +2107,9 @@ internal fun File.uniqueChild(fileName: String): File {
 @Composable
 private fun HelperTheme(
     themeMode: ThemeMode,
-    dynamicColors: Boolean,
+    themeStyle: ThemeStyle,
+    pureBlackTheme: Boolean,
+    accentColorHex: String,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -2109,13 +2118,32 @@ private fun HelperTheme(
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
     }
-    helperDynamicColors = dynamicColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val colorScheme = when {
-        dynamicColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> morpheDarkColorScheme()
-        else -> morpheLightColorScheme()
+    // A stored Material You choice is downgraded rather than dropped on devices
+    // that do not expose the platform palette, so the setting survives a move
+    // back to a newer phone.
+    val supportsDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val style = if (themeStyle == ThemeStyle.MATERIAL_YOU && !supportsDynamicColor) {
+        ThemeStyle.MORPHE
+    } else {
+        themeStyle
     }
+    val base = when (style) {
+        ThemeStyle.MONOCHROME -> if (dark) monochromeDarkColorScheme() else monochromeLightColorScheme()
+        ThemeStyle.MATERIAL_YOU ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        ThemeStyle.MORPHE -> if (dark) morpheDarkColorScheme() else morpheLightColorScheme()
+    }
+    val colorScheme = base
+        .let { if (dark && pureBlackTheme) it.withPureBlack() else it }
+        // A custom accent belongs to the Morphe style alone: the other two own
+        // their colours, so leaving one applied there would contradict the choice.
+        .let {
+            if (style == ThemeStyle.MORPHE) {
+                accentColorHex.toAccentColorOrNull()?.let { accent -> it.withCustomAccent(accent, dark) } ?: it
+            } else {
+                it
+            }
+        }
     // The manager draws edge-to-edge behind fully transparent bars and lets each
     // screen apply its own status/navigation bar insets, so the helper adopts the
     // same setup. The appearance flags still decide whether the transparent bars
@@ -2144,11 +2172,15 @@ private fun HelperTheme(
             }
         }
     }
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = MorpheTypography,
-        content = content
-    )
+    // Decorations the scheme cannot reach (the brand gradient, generated letter
+    // tiles) read this to flatten themselves in monochrome mode.
+    CompositionLocalProvider(LocalMonochromeTheme provides (style == ThemeStyle.MONOCHROME)) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = MorpheTypography,
+            content = content
+        )
+    }
 }
 
 @Composable
@@ -3353,14 +3385,23 @@ private fun SystemTabContent(
 }
 
 /**
- * Appearance tab: theme mode and wallpaper-derived colors, mirroring the
- * manager's own appearance tab.
+ * Appearance tab: theme mode, colour style, pure black and the accent colour,
+ * mirroring the manager's own appearance tab.
  */
 @Composable
 private fun AppearanceTabContent(
     settings: HelperSettings,
     onSettingsChange: (HelperSettings) -> Unit
 ) {
+    var showAccentPicker by rememberSaveable { mutableStateOf(false) }
+    val supportsDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // Wallpaper colours need a platform palette, so the option is not offered
+    // where it could not work. A stored choice still resolves on the other side.
+    val styles = ThemeStyle.entries.filter {
+        it != ThemeStyle.MATERIAL_YOU || supportsDynamicColor
+    }
+    val accent = settings.customAccentColor.toAccentColorOrNull()
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingMedium)
@@ -3376,20 +3417,74 @@ private fun AppearanceTabContent(
                     trailing = { RadioDot(selected = settings.themeMode == mode) }
                 )
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MorpheDivider()
+        }
+
+        SettingsGroup(title = "Colour style", icon = Icons.Outlined.ColorLens) {
+            styles.forEachIndexed { index, style ->
+                if (index > 0) MorpheDivider()
+                SettingsRow(
+                    icon = style.icon(),
+                    title = style.title,
+                    subtitle = style.description,
+                    onClick = { onSettingsChange(settings.copy(themeStyle = style)) },
+                    trailing = { RadioDot(selected = settings.themeStyle == style) }
+                )
+            }
+        }
+
+        // Pure black only means anything behind dark content, so it is hidden
+        // while the app is pinned to the light theme.
+        if (settings.themeMode != ThemeMode.LIGHT) {
+            SettingsGroup(title = "Dark theme", icon = Icons.Outlined.DarkMode) {
                 SettingsSwitchItem(
-                    icon = Icons.Outlined.Palette,
-                    title = "Material You colors",
-                    subtitle = "Tint the app from your wallpaper instead of the default blue accent.",
-                    checked = settings.dynamicColors,
+                    icon = Icons.Outlined.Contrast,
+                    title = "Pure black",
+                    subtitle = "Paint backgrounds fully black instead of the theme's near-black. " +
+                        "Saves power on OLED screens.",
+                    checked = settings.pureBlackTheme,
                     onToggle = {
-                        onSettingsChange(settings.copy(dynamicColors = !settings.dynamicColors))
+                        onSettingsChange(settings.copy(pureBlackTheme = !settings.pureBlackTheme))
                     }
                 )
             }
         }
+
+        // Wallpaper colours are the accent, and the neutral style has none to
+        // swap, so the grid is offered for the Morphe palette alone.
+        if (settings.themeStyle == ThemeStyle.MORPHE) {
+            SettingsGroup(title = "Accent colour", icon = Icons.Outlined.Colorize) {
+                AccentGridSection {
+                    AccentSwatchGrid(
+                        colors = MorpheAccentPresets,
+                        selected = accent,
+                        onSelect = { color ->
+                            onSettingsChange(settings.copy(customAccentColor = color.toHexString()))
+                        },
+                        onClear = { onSettingsChange(settings.copy(customAccentColor = "")) },
+                        onCustomClick = { showAccentPicker = true }
+                    )
+                }
+            }
+        }
     }
+
+    if (showAccentPicker) {
+        MorpheAccentPickerDialog(
+            currentColorHex = settings.customAccentColor,
+            onColorSelected = { color ->
+                onSettingsChange(settings.copy(customAccentColor = color.toHexString()))
+                showAccentPicker = false
+            },
+            onDismiss = { showAccentPicker = false }
+        )
+    }
+}
+
+/** Icon for each colour style, mirroring the manager's selector. */
+private fun ThemeStyle.icon(): ImageVector = when (this) {
+    ThemeStyle.MORPHE -> Icons.Outlined.Palette
+    ThemeStyle.MATERIAL_YOU -> Icons.Outlined.AutoAwesome
+    ThemeStyle.MONOCHROME -> Icons.Outlined.Contrast
 }
 
 /**
@@ -5739,16 +5834,19 @@ private fun AppAvatar(packageName: String, initial: Char) {
             Color(0xFFF25C1B)
         )
         val color = colors[initial.code % colors.size]
+        // Monochrome mode drops the per-app hue and takes the neutral accent, so
+        // a list of these tiles does not read as the only colour left on screen.
+        val tile = MonochromeThemeDefaults.accentColor(color)
         Box(
             modifier = Modifier
                 .size(44.dp)
                 .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
-                .background(color.copy(alpha = 0.85f)),
+                .background(tile.copy(alpha = 0.85f)),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = initial.toString(),
-                color = Color.White,
+                color = MonochromeThemeDefaults.iconTint(Color.White),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -6282,10 +6380,6 @@ private fun SourceMenuHeader(title: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
-
-// Tracks the active Material You state (themeMode-aware) so non-scheme helpers can
-// adapt with the rest of the UI  wallpaper-tinted surfaces when dynamic colors are on.
-private var helperDynamicColors by mutableStateOf(false)
 
 /**
  * Fill used by the list/selection cards (sources, dropdown rows, stat cards).
