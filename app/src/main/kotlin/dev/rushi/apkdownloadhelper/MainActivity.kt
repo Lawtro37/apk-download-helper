@@ -4603,6 +4603,16 @@ private fun AppBrowserScreen(
         selected = null
     }
 
+    // Search is the one control reachable while the selector rows are collapsed, so
+    // filtering from deep in the list would otherwise leave the results mid-scroll
+    // with the controls still hidden. Jumping to the top brings them back, and also
+    // puts the best matches where the eye already is.
+    LaunchedEffect(query) {
+        if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+            listState.scrollToItem(0)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
