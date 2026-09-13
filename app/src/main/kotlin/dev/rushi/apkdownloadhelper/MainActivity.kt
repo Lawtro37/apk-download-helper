@@ -3120,11 +3120,7 @@ private fun HelperSettingsScreen(
             SettingsTab.ADVANCED -> item {
                 AdvancedTabContent(
                     settings = settings,
-                    onSettingsChange = onSettingsChange,
-                    historyEntries = historyEntries,
-                    onOpenHistoryEntry = onOpenHistoryEntry,
-                    onShareHistoryEntry = onShareHistoryEntry,
-                    onClearHistory = onClearHistory
+                    onSettingsChange = onSettingsChange
                 )
             }
 
@@ -3133,7 +3129,11 @@ private fun HelperSettingsScreen(
                     settings = settings,
                     onSettingsChange = onSettingsChange,
                     logs = logs,
-                    onClearLogs = onClearLogs
+                    onClearLogs = onClearLogs,
+                    historyEntries = historyEntries,
+                    onOpenHistoryEntry = onOpenHistoryEntry,
+                    onShareHistoryEntry = onShareHistoryEntry,
+                    onClearHistory = onClearHistory
                 )
             }
         }
@@ -3393,19 +3393,14 @@ private fun AppearanceTabContent(
 }
 
 /**
- * Advanced tab: the scanning and reachability settings  VirusTotal, source health
- * and past hand-offs. Request logs live on their own tab.
+ * Advanced tab: the scanning and reachability settings  VirusTotal and source health.
+ * What has been handed off, and what the app logged doing it, live on the Logs tab.
  */
 @Composable
 private fun AdvancedTabContent(
     settings: HelperSettings,
-    onSettingsChange: (HelperSettings) -> Unit,
-    historyEntries: List<DownloadHistoryEntry>,
-    onOpenHistoryEntry: (DownloadHistoryEntry) -> Unit,
-    onShareHistoryEntry: (DownloadHistoryEntry) -> Unit,
-    onClearHistory: () -> Unit
+    onSettingsChange: (HelperSettings) -> Unit
 ) {
-    val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingMedium)
@@ -3450,31 +3445,35 @@ private fun AdvancedTabContent(
         }
 
         SourceHealthCard()
-
-        DownloadHistorySection(
-            entries = historyEntries,
-            onClear = onClearHistory,
-            onOpen = onOpenHistoryEntry,
-            onShare = onShareHistoryEntry
-        )
     }
 }
 
 /**
- * Logs tab: the Logcat switch and the in-app request log, given their own space so
- * they no longer trail the scanning settings in Advanced.
+ * Logs tab: what the app handed off, the Logcat switch and the in-app request log,
+ * given their own space so they no longer trail the scanning settings in Advanced.
  */
 @Composable
 private fun LogsTabContent(
     settings: HelperSettings,
     onSettingsChange: (HelperSettings) -> Unit,
     logs: List<RequestLogEntry>,
-    onClearLogs: () -> Unit
+    onClearLogs: () -> Unit,
+    historyEntries: List<DownloadHistoryEntry>,
+    onOpenHistoryEntry: (DownloadHistoryEntry) -> Unit,
+    onShareHistoryEntry: (DownloadHistoryEntry) -> Unit,
+    onClearHistory: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingMedium)
     ) {
+        DownloadHistorySection(
+            entries = historyEntries,
+            onClear = onClearHistory,
+            onOpen = onOpenHistoryEntry,
+            onShare = onShareHistoryEntry
+        )
+
         SettingsGroup(title = "Logging", icon = Icons.Outlined.BugReport) {
             SettingsSwitchItem(
                 icon = Icons.Outlined.BugReport,
@@ -3715,6 +3714,11 @@ private fun SettingsChoiceDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        // The platform container is an already-elevated tone, which the option rows
+        // (elevated surfaces themselves) sit flush against  the two read as one flat
+        // block. The manager paints its dialogs on the plain background so the cards on
+        // top stand out, so do the same here.
+        containerColor = MaterialTheme.colorScheme.background,
         title = {
             Text(text = title, fontWeight = FontWeight.Bold)
         },
@@ -4372,8 +4376,7 @@ private enum class AppListTab(
     val contentDescription: String
 ) {
     All("All", Icons.Outlined.ViewList, "All"),
-    // Icon-only (heart) so the neighbouring labels keep more room.
-    Favourites("", Icons.Outlined.FavoriteBorder, "Favourites"),
+    Favourites("Liked", Icons.Outlined.FavoriteBorder, "Liked"),
     Installed("Installed", Icons.Outlined.CheckCircle, "Installed"),
     NotInstalled("Not installed", Icons.Outlined.Block, "Not installed")
 }
@@ -4515,18 +4518,17 @@ private fun AppBrowserScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                val current = selected
-                Text(
-                    text = when {
-                        current != null -> current.name
-                        apps != null -> "${apps!!.size} apps with patches"
-                        else -> "Morphe patch archive"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // No app name here when a detail is open: the card below already
+                // headings with it, so it would read as the same name twice.
+                if (selected == null) {
+                    Text(
+                        text = apps?.let { "${it.size} apps with patches" } ?: "Morphe patch archive",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             HelperHeaderIconButton(
                 icon = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -4658,7 +4660,7 @@ private fun AppBrowserScreen(
                         InfoCard(
                             when (tab) {
                                 AppListTab.Favourites ->
-                                    "No favourites yet. Tap the heart on any app to pin it here."
+                                    "No liked apps yet. Tap the heart on any app to pin it here."
                                 AppListTab.Installed -> "No patched apps in the index are installed."
                                 AppListTab.NotInstalled ->
                                     "Every app in the index is installed on this device."
@@ -4795,7 +4797,7 @@ private fun AppBrowserRow(
                 } else {
                     Icons.Outlined.FavoriteBorder
                 },
-                contentDescription = if (favourite) "Remove from favourites" else "Add to favourites",
+                contentDescription = if (favourite) "Unlike" else "Like",
                 tint = if (favourite) {
                     MaterialTheme.colorScheme.error
                 } else {
