@@ -911,7 +911,10 @@ internal fun MorphePillButton(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = MorpheDefaults.ContentPadding),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                // Centred rather than start-aligned: these pills stretch to fill a card
+                // row, and a start-aligned icon+label would sit against the left edge with
+                // dead space beside it.
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
