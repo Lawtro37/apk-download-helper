@@ -790,7 +790,11 @@ internal fun MorpheToggleSwitch(
 /** One card of a [MorpheSelectorRow]. */
 internal data class MorpheSelectorOption(
     val label: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    /** Glyph rotation, e.g. 180° so a sort glyph reads as descending. */
+    val iconRotation: Float = 0f,
+    /** Announced in place of the label when an option is icon-only. */
+    val contentDescription: String? = null
 )
 
 /**
@@ -845,8 +849,13 @@ internal fun MorpheSelectorRow(
                             MaterialTheme.colorScheme.onSurface
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                        }
+                        },
+                        contentDescription = option.contentDescription
+                            ?.takeIf { option.label.isBlank() },
+                        modifier = Modifier.rotate(option.iconRotation)
                     )
+                    // Rendered even when the label is blank here so an icon-only option keeps
+                    // the same height as its siblings.
                     Text(
                         text = option.label,
                         style = labelStyle,

@@ -52,7 +52,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -177,7 +176,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import android.graphics.BitmapFactory
@@ -4316,12 +4314,16 @@ private fun EmptyLaunchState(
 }
 
 /** Which slice of the archive list to show. */
-private enum class AppListTab(val label: String, val icon: ImageVector) {
-    All("All", Icons.Outlined.ViewList),
+private enum class AppListTab(
+    val label: String,
+    val icon: ImageVector,
+    val contentDescription: String
+) {
+    All("All", Icons.Outlined.ViewList, "All"),
     // Icon-only (heart) so the neighbouring labels keep more room.
-    Favourites("", Icons.Outlined.FavoriteBorder),
-    Installed("Installed", Icons.Outlined.CheckCircle),
-    NotInstalled("Not installed", Icons.Outlined.Block)
+    Favourites("", Icons.Outlined.FavoriteBorder, "Favourites"),
+    Installed("Installed", Icons.Outlined.CheckCircle, "Installed"),
+    NotInstalled("Not installed", Icons.Outlined.Block, "Not installed")
 }
 
 /** How the archive list is ordered. */
@@ -4330,68 +4332,6 @@ private enum class AppSort(val label: String, val icon: ImageVector, val rotatio
     // Same glyph flipped 180° so it reads descending (mirror of A–Z).
     ZA("Z–A", Icons.Outlined.SortByAlpha, 180f),
     Sources("Sources", Icons.Outlined.Extension)
-}
-
-/**
- * Compact icon+label pill for the archive tabs and sort options  the pill-shaped variant of
- * the manager's selector row, drawn from the same tokens ([MorpheDefaults.PillShape], the
- * surface/onSurface pair) rather than colours of its own.
- */
-@Composable
-private fun CompactPill(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    iconRotation: Float = 0f
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = MorpheDefaults.PillShape
-    Surface(
-        modifier = Modifier
-            .height(MorpheDefaults.PillHeight)
-            .clip(shape)
-            .clickable(onClick = onClick),
-        shape = shape,
-        color = if (selected) colors.surfaceVariant else Color.Transparent,
-        contentColor = colors.onSurface,
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 0.5.dp,
-            color = colors.onSurface.copy(alpha = if (selected) 0.5f else 0.2f)
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = MorpheDefaults.ContentPaddingSmall + 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label.ifBlank { null },
-                tint = if (selected) {
-                    colors.onSurface
-                } else {
-                    colors.onSurface.copy(alpha = 0.4f)
-                },
-                modifier = Modifier
-                    .size(MorpheDefaults.IconSizeSmall)
-                    .rotate(iconRotation)
-            )
-            if (label.isNotBlank()) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) {
-                        colors.onSurface
-                    } else {
-                        colors.onSurface.copy(alpha = 0.5f)
-                    },
-                    maxLines = 1
-                )
-            }
-        }
-    }
 }
 
 /**
@@ -4614,34 +4554,33 @@ private fun AppBrowserScreen(
                 }
                 else -> {
                     AppDisclaimerBanner()
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AppListTab.entries.forEach { t ->
-                            CompactPill(
-                                label = t.label,
-                                icon = t.icon,
-                                selected = tab == t,
-                                onClick = { tab = t }
+                    // The same selector row the version-type and settings tabs use, so the
+                    // browser has no pill of its own to drift out of sync.
+                    MorpheSelectorRow(
+                        options = AppListTab.entries.map {
+                            MorpheSelectorOption(
+                                label = it.label,
+                                icon = it.icon,
+                                contentDescription = it.contentDescription
                             )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-                    ) {
-                        AppSort.entries.forEach { s ->
-                            CompactPill(
-                                label = s.label,
-                                icon = s.icon,
-                                selected = sort == s,
-                                onClick = { sort = s },
-                                iconRotation = s.rotation
+                        },
+                        selectedIndex = AppListTab.entries.indexOf(tab),
+                        onSelect = { tab = AppListTab.entries[it] },
+                        // Four labels across, so use the smaller step.
+                        labelStyle = MaterialTheme.typography.labelMedium
+                    )
+                    MorpheSelectorRow(
+                        options = AppSort.entries.map {
+                            MorpheSelectorOption(
+                                label = it.label,
+                                icon = it.icon,
+                                iconRotation = it.rotation
                             )
-                        }
-                    }
+                        },
+                        selectedIndex = AppSort.entries.indexOf(sort),
+                        onSelect = { sort = AppSort.entries[it] },
+                        labelStyle = MaterialTheme.typography.labelMedium
+                    )
                     val filtered = loaded
                         .filter { app ->
                             query.isBlank() ||
