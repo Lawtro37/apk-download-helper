@@ -4551,6 +4551,9 @@ private fun AppBrowserScreen(
     onBack: () -> Unit
 ) {
     var apps by remember { mutableStateOf<List<ArchiveApp>?>(null) }
+    // When the archive built the index, so a build that predates a source's own
+    // changes is visible rather than silently misleading.
+    var freshness by remember { mutableStateOf<ArchiveFreshness?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<ArchiveApp?>(null) }
@@ -4578,7 +4581,9 @@ private fun AppBrowserScreen(
         apps = null
         error = null
         try {
-            apps = MorpheArchive.fetchApps().sortedBy { it.name.lowercase(Locale.US) }
+            val index = MorpheArchive.fetchIndex()
+            apps = index.apps.sortedBy { it.name.lowercase(Locale.US) }
+            freshness = archiveFreshness(index.generatedAt)
         } catch (e: Exception) {
             error = e.message ?: "Failed to load the app index"
         }
@@ -4616,9 +4621,19 @@ private fun AppBrowserScreen(
                 // No app name here when a detail is open: the card below already
                 // headings with it, so it would read as the same name twice.
                 if (selected == null) {
+                    val fresh = freshness
                     Text(
-                        text = apps?.let { "${it.size} apps with patches" } ?: "Morphe patch archive",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = buildString {
+                            append(apps?.let { "${it.size} apps with patches" } ?: "Morphe patch archive")
+                            // Age goes in the subtitle because a stale index is otherwise
+                            // indistinguishable from a current one.
+                            fresh?.let { append(" · index ${it.label}") }
+                        },
+                        color = if (fresh?.stale == true) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

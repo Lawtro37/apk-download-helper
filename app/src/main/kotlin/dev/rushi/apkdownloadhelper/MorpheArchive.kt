@@ -5,6 +5,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 /**
@@ -15,6 +19,16 @@ import java.util.concurrent.TimeUnit
 internal data class MorpheArchiveData(
     @SerializedName("generatedAt") val generatedAt: String? = null,
     @SerializedName("apps") val apps: List<ArchiveApp> = emptyList()
+)
+
+/**
+ * One fetch of the index: the apps, plus when the archive built it. The build
+ * time matters because a source can change its patch set between runs, and the
+ * index goes on describing the repo as it was at build time.
+ */
+internal data class MorpheArchiveIndex(
+    val generatedAt: String? = null,
+    val apps: List<ArchiveApp> = emptyList()
 )
 
 internal data class ArchiveApp(
@@ -91,6 +105,56 @@ internal fun groupArchiveSources(sources: List<ArchiveSource>): List<ArchiveSour
  * Fetches the Morphe archive index over the network on every call.
  * Returns the apps list, or throws so the caller can surface an error state.
  */
+/** How old the index looks to the user, and whether that age is a problem. */
+internal data class ArchiveFreshness(val label: String, val stale: Boolean)
+
+/**
+ * The archive rebuilds daily, so anything past two days means the run itself has
+ * stopped rather than the build simply being recent.
+ */
+private const val STALE_AFTER_MS = 48L * 60L * 60L * 1000L
+
+/**
+ * How long ago the index was built, phrased for the browser header. Returns null
+ * when the timestamp is missing or unreadable, so the caller shows nothing rather
+ * than claiming a freshness it cannot know.
+ */
+internal fun archiveFreshness(
+    generatedAt: String?,
+    now: Long = System.currentTimeMillis()
+): ArchiveFreshness? {
+    val builtAt = parseArchiveTimestamp(generatedAt) ?: return null
+    val ageMs = (now - builtAt).coerceAtLeast(0L)
+    val minutes = ageMs / 60_000L
+    val stale = ageMs > STALE_AFTER_MS
+    val label = when {
+        minutes < 1L -> "just now"
+        minutes < 60L -> "${minutes} min ago"
+        // Hours only hold up while the daily rebuild is merely late; once it has
+        // stopped, the day it was built says more than an ever-growing count.
+        !stale -> "${minutes / 60L} h ago"
+        else -> SimpleDateFormat("d MMM", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date(builtAt))
+    }
+    return ArchiveFreshness(label = label, stale = stale)
+}
+
+/** The archive's own `%Y-%m-%d %H:%M UTC` stamp, or null when it is not that. */
+private fun parseArchiveTimestamp(value: String?): Long? {
+    val trimmed = value?.trim()?.removeSuffix("UTC")?.trim() ?: return null
+    if (trimmed.isEmpty()) return null
+    return runCatching {
+        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+            .apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+                isLenient = false
+            }
+            .parse(trimmed)
+            ?.time
+    }.getOrNull()
+}
+
 internal object MorpheArchive {
 
     const val INDEX_URL =
@@ -107,7 +171,7 @@ internal object MorpheArchive {
         .followRedirects(true)
         .build()
 
-    suspend fun fetchApps(): List<ArchiveApp> = withContext(Dispatchers.IO) {
+    suspend fun fetchIndex(): MorpheArchiveIndex = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(INDEX_URL)
             .header(
@@ -122,7 +186,7 @@ internal object MorpheArchive {
             }
             val body = response.body?.string().orEmpty()
             val parsed = gson.fromJson(body, MorpheArchiveData::class.java)
-            parsed.apps
+            MorpheArchiveIndex(generatedAt = parsed.generatedAt, apps = parsed.apps)
         }
     }
 
