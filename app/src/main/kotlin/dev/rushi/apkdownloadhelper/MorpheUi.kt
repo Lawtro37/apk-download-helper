@@ -9,8 +9,16 @@ package dev.rushi.apkdownloadhelper
  * info / selector components the manager uses everywhere.
  */
 
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -18,11 +26,18 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +87,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +102,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -153,6 +170,117 @@ internal object MorpheDefaults {
 
 /** Text colour inside Morphe-style dialogs (the manager resolves this per dialog surface). */
 internal val LocalDialogTextColor = compositionLocalOf { Color.Unspecified }
+
+// ---------------------------------------------------------------------------
+// Motion  ported from morphe-manager's ui/screen/shared/Animations.kt
+// ---------------------------------------------------------------------------
+
+/**
+ * Motion set shared by every transition in the helper, so dialogs, pushed screens, overlays
+ * and the floating button all move like the manager's. Durations and scales come from
+ * [MorpheDefaults], so retuning a token retimes the whole app at once.
+ */
+internal object MorpheAnimations {
+    /** Shared easing helper, mirroring the manager's `defaultTween`. */
+    private fun <T> defaultTween(
+        duration: Int = MorpheDefaults.ANIMATION_DURATION,
+        easing: Easing = LinearOutSlowInEasing
+    ) = tween<T>(duration, easing = easing)
+
+    val fade: EnterTransition = fadeIn(animationSpec = defaultTween())
+    val fadeOut: ExitTransition = fadeOut(animationSpec = defaultTween())
+
+    /** Dialog scale-fade, used by [MorpheDialog]. */
+    val dialogEnter: EnterTransition = fadeIn(animationSpec = defaultTween()) +
+        scaleIn(
+            initialScale = MorpheDefaults.DIALOG_SCALE,
+            animationSpec = defaultTween(easing = FastOutSlowInEasing)
+        )
+    val dialogExit: ExitTransition = fadeOut(animationSpec = defaultTween()) +
+        scaleOut(
+            targetScale = MorpheDefaults.DIALOG_SCALE,
+            animationSpec = defaultTween()
+        )
+
+    /** Overlays fade without scaling. */
+    val overlayEnter: EnterTransition = fadeIn(animationSpec = defaultTween())
+    val overlayExit: ExitTransition = fadeOut(animationSpec = defaultTween())
+
+    /** Screen swap that scales in place, for content replacing content. */
+    val screenEnter: EnterTransition = fadeIn(defaultTween(MorpheDefaults.SCREEN_ENTER_DURATION)) +
+        scaleIn(
+            initialScale = MorpheDefaults.DIALOG_SCALE,
+            animationSpec = defaultTween(MorpheDefaults.SCREEN_ENTER_DURATION, FastOutSlowInEasing)
+        )
+    val screenExit: ExitTransition = dialogExit
+
+    /**
+     * Push transitions: a screen slides up over the one below it and returns by sliding back
+     * down, which is how the manager brings Settings forward.
+     */
+    val pushEnter: EnterTransition = slideInVertically(
+        animationSpec = defaultTween(MorpheDefaults.SCREEN_ENTER_DURATION, FastOutSlowInEasing)
+    ) { it } + fadeIn(defaultTween(MorpheDefaults.SCREEN_ENTER_DURATION))
+
+    val pushExit: ExitTransition = slideOutVertically(
+        animationSpec = defaultTween(MorpheDefaults.SCREEN_ENTER_DURATION, FastOutSlowInEasing)
+    ) { it } + fadeOut(tween(MorpheDefaults.SCREEN_ENTER_DURATION, easing = LinearEasing))
+
+    /** Vertical expand/collapse paired with a fade, for collapsible sections. */
+    val expandFadeEnter: EnterTransition = expandVertically(defaultTween()) + fadeIn(defaultTween())
+    val shrinkFadeExit: ExitTransition = shrinkVertically(defaultTween()) + fadeOut(defaultTween())
+
+    /**
+     * Floating button (scroll-to-top): pops in from below with a stronger scale than a dialog,
+     * so it reads as arriving rather than appearing.
+     */
+    val fabEnter: EnterTransition = fadeIn(defaultTween()) +
+        scaleIn(defaultTween(), initialScale = 0.85f) +
+        slideInVertically(defaultTween()) { it / 2 }
+    val fabExit: ExitTransition = fadeOut(defaultTween()) +
+        scaleOut(defaultTween(), targetScale = 0.85f) +
+        slideOutVertically(defaultTween()) { it / 2 }
+
+    /** Spring-driven slide-up for bars dropping in from the top edge. */
+    val springSlideUpEnter: EnterTransition = slideInVertically(
+        animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium),
+        initialOffsetY = { it }
+    ) + fadeIn(tween(MorpheDefaults.ANIMATION_DURATION_SHORT))
+
+    /**
+     * Slide-fade content swap for [androidx.compose.animation.AnimatedContent]: counters,
+     * labels and status text. Asymmetric durations read as snappier than a symmetric crossfade.
+     */
+    fun slideTransitionSpec(
+        enterDuration: Int = 200,
+        exitDuration: Int = 150,
+        offset: (Int) -> Int = { -it / 2 }
+    ): AnimatedContentTransitionScope<*>.() -> ContentTransform = {
+        (fadeIn(tween(enterDuration)) + slideInVertically(tween(enterDuration)) { offset(it) })
+            .togetherWith(fadeOut(tween(exitDuration)) + slideOutVertically(tween(exitDuration)) { -offset(it) })
+    }
+
+    /** Plain crossfade, for content that swaps in step with a state change. */
+    fun fadeCrossfade(
+        duration: Int = MorpheDefaults.ANIMATION_DURATION
+    ): AnimatedContentTransitionScope<*>.() -> ContentTransform = {
+        fadeIn(tween(duration)) togetherWith fadeOut(tween(duration))
+    }
+}
+
+/**
+ * Placement and fade animation for a lazy list row, so a list that filters, folds or reorders
+ * settles instead of jumping. Kept next to [MorpheAnimations] so list and dialog motion stay
+ * in step.
+ */
+@Composable
+internal fun Modifier.animatedListItem(itemScope: LazyItemScope): Modifier = with(itemScope) {
+    this@animatedListItem.animateItem(
+        fadeInSpec = tween(MorpheDefaults.ANIMATION_DURATION),
+        fadeOutSpec = tween(MorpheDefaults.ANIMATION_DURATION_SHORT),
+        placementSpec = spring(stiffness = 400f, dampingRatio = 0.8f)
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Colour scheme  exact values from morphe-manager's ui/theme/Color.kt
@@ -626,8 +754,8 @@ internal fun MorpheExpandableSurface(
 
             AnimatedVisibility(
                 visible = expanded,
-                enter = expandVertically(tween(MorpheDefaults.ANIMATION_DURATION)) + fadeIn(),
-                exit = shrinkVertically(tween(MorpheDefaults.ANIMATION_DURATION)) + fadeOut()
+                enter = MorpheAnimations.expandFadeEnter,
+                exit = MorpheAnimations.shrinkFadeExit
             ) {
                 content()
             }
@@ -1302,29 +1430,85 @@ internal fun MorpheDialog(
     actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // Dialogs arrive with the manager's scale-fade rather than snapping in. The flag only
+    // flips on the way in: callers dismiss by dropping the dialog from composition, which
+    // takes the window with it, so the exit spec is here for symmetry and for callers that
+    // animate the dialog out before removing it.
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
     Dialog(onDismissRequest = onDismiss, properties = MorpheDialogProperties) {
-        MorpheDialogSurface(modifier = modifier.fillMaxWidth(0.92f)) {
-            Column(
-                modifier = Modifier.padding(MorpheDialogContentPadding),
-                verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPadding)
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = LocalDialogTextColor.current
-                )
-                content()
-                actions?.let { actions ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = actions
+        AnimatedVisibility(
+            visible = visible,
+            enter = MorpheAnimations.dialogEnter,
+            exit = MorpheAnimations.dialogExit,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            MorpheDialogSurface(modifier = modifier.fillMaxWidth(0.92f)) {
+                Column(
+                    modifier = Modifier.padding(MorpheDialogContentPadding),
+                    verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPadding)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = LocalDialogTextColor.current
                     )
+                    content()
+                    actions?.let { actions ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = actions
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * Floating button that pops in and out with the manager's floating-button motion, so it
+ * reads as arriving rather than appearing.
+ */
+@Composable
+internal fun MorpheFab(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = MorpheAnimations.fabEnter,
+        exit = MorpheAnimations.fabExit
+    ) {
+        content()
+    }
+}
+
+/**
+ * Opaque full-screen holder for a screen that is pushed over another one, so whatever sits
+ * underneath never shows through mid-slide.
+ *
+ * The tap handler swallows taps the pushed screen itself did not use, which keeps them from
+ * reaching the still-composed screen below.
+ */
+@Composable
+internal fun MorphePushedScreen(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .pointerInput(Unit) { detectTapGestures { } }
+    ) {
+        content()
     }
 }
 

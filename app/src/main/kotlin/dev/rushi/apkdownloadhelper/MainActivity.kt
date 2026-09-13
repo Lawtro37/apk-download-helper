@@ -2503,29 +2503,7 @@ private fun HelperScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        if (showAppBrowser) {
-            AppBrowserScreen(onBack = { showAppBrowser = false })
-            return@Surface
-        }
-
-        if (showSettings) {
-            HelperSettingsScreen(
-                settings = settings,
-                onSettingsChange = onSettingsChange,
-                logs = logs,
-                onClearLogs = onClearLogs,
-                historyEntries = historyEntries,
-                onOpenHistoryEntry = onOpenHistoryEntry,
-                onShareHistoryEntry = onShareHistoryEntry,
-                onClearHistory = {
-                    onClearHistory()
-                    refreshHistory()
-                },
-                onBack = { showSettings = false }
-            )
-            return@Surface
-        }
-
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier
@@ -2738,6 +2716,42 @@ private fun HelperScreen(
         val action = primaryAction
         if (action != null) {
             SourceBottomBar(action = action, onRefresh = onRefresh, onCancel = onCancel)
+        }
+        }
+
+        // Settings and the app browser push up over the home screen the way the manager
+        // brings its own screens forward, instead of swapping screens instantly.
+        AnimatedVisibility(
+            visible = showSettings,
+            enter = MorpheAnimations.pushEnter,
+            exit = MorpheAnimations.pushExit
+        ) {
+            MorphePushedScreen {
+                HelperSettingsScreen(
+                    settings = settings,
+                    onSettingsChange = onSettingsChange,
+                    logs = logs,
+                    onClearLogs = onClearLogs,
+                    historyEntries = historyEntries,
+                    onOpenHistoryEntry = onOpenHistoryEntry,
+                    onShareHistoryEntry = onShareHistoryEntry,
+                    onClearHistory = {
+                        onClearHistory()
+                        refreshHistory()
+                    },
+                    onBack = { showSettings = false }
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showAppBrowser,
+            enter = MorpheAnimations.pushEnter,
+            exit = MorpheAnimations.pushExit
+        ) {
+            MorphePushedScreen {
+                AppBrowserScreen(onBack = { showAppBrowser = false })
+            }
         }
         }
     }
@@ -4684,7 +4698,10 @@ private fun AppBrowserScreen(
                                             onToggleFavourite = {
                                                 favourites = MorpheFavourites.toggle(context, app.packageName)
                                             },
-                                            onClick = { selected = app }
+                                            onClick = { selected = app },
+                                            // Rows settle into their new places with a spring, so
+                                            // re-sorting or filtering glides instead of jumping.
+                                            modifier = Modifier.animatedListItem(this)
                                         )
                                     }
                                 }
@@ -4694,18 +4711,21 @@ private fun AppBrowserScreen(
                                 )
                             }
                             // Quick jump back to the top for long catalogs; only
-                            // shown once the user has scrolled down. A clickable
+                            // shown once the user has scrolled down, and it pops in
+                            // with the manager's floating-button motion. A clickable
                             // Surface is natively exposed to TalkBack via the
                             // icon's contentDescription.
-                            if (listState.firstVisibleItemIndex > 0) {
+                            MorpheFab(
+                                visible = listState.firstVisibleItemIndex > 0,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 32.dp, bottom = 20.dp)
+                            ) {
                                 Surface(
                                     onClick = { scope.launch { listState.animateScrollToItem(0) } },
                                     shape = CircleShape,
                                     color = SemanticTone.Primary.container,
-                                    contentColor = SemanticTone.Primary.content,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(end = 32.dp, bottom = 20.dp)
+                                    contentColor = SemanticTone.Primary.content
                                 ) {
                                     ThemedIcon(
                                         icon = Icons.Outlined.KeyboardArrowUp,
@@ -4728,10 +4748,11 @@ private fun AppBrowserRow(
     app: ArchiveApp,
     favourite: Boolean,
     onToggleFavourite: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(MorpheDefaults.SettingsCornerRadius))
             .clickable(onClick = onClick),
@@ -5864,13 +5885,13 @@ private fun AnimatedExpand(
         visible = visible,
         modifier = modifier,
         enter = expandVertically(
-            animationSpec = tween(220),
+            animationSpec = tween(MorpheDefaults.ANIMATION_DURATION),
             expandFrom = Alignment.Top
-        ) + fadeIn(animationSpec = tween(220)),
+        ) + fadeIn(animationSpec = tween(MorpheDefaults.ANIMATION_DURATION)),
         exit = shrinkVertically(
-            animationSpec = tween(180),
+            animationSpec = tween(MorpheDefaults.ANIMATION_DURATION_SHORT),
             shrinkTowards = Alignment.Top
-        ) + fadeOut(animationSpec = tween(180))
+        ) + fadeOut(animationSpec = tween(MorpheDefaults.ANIMATION_DURATION_SHORT))
     ) {
         content()
     }
