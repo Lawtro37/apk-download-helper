@@ -674,7 +674,8 @@ internal fun MorpheSelectorRow(
     options: List<MorpheSelectorOption>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    labelStyle: TextStyle = MaterialTheme.typography.bodyMedium
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -720,13 +721,16 @@ internal fun MorpheSelectorRow(
                     )
                     Text(
                         text = option.label,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = labelStyle,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                         color = if (isSelected) {
                             MaterialTheme.colorScheme.onSurface
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        }
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
                     )
                 }
             }

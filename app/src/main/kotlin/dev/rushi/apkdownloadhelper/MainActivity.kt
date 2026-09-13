@@ -2369,13 +2369,16 @@ private fun CaptchaBrowserScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            AndroidView(
-                factory = { webView },
+            SectionCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(MorpheDefaults.SectionCornerRadius))
-            )
+            ) {
+                AndroidView(
+                    factory = { webView },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
@@ -2824,7 +2827,7 @@ private fun SourceHealthRow(check: SourceHealthChecker.Check) {
             modifier = Modifier
                 .padding(top = 5.dp)
                 .size(8.dp)
-                .clip(RoundedCornerShape(50))
+                .clip(MorpheDefaults.PillShape)
                 .background(dotColor)
         )
         Column(
@@ -4118,7 +4121,7 @@ private fun VirusTotalQuotaCard(apiKey: String) {
                         tint = colors.primary,
                         modifier = Modifier
                             .size(20.dp)
-                            .clip(RoundedCornerShape(50))
+                            .clip(MorpheDefaults.PillShape)
                             .clickable { load() }
                             .padding(2.dp)
                     )
@@ -4315,7 +4318,11 @@ private enum class AppSort(val label: String, val icon: ImageVector, val rotatio
     Sources("Sources", Icons.Outlined.Extension)
 }
 
-/** Compact icon+label pill used for the archive tabs and sort options. */
+/**
+ * Compact icon+label pill for the archive tabs and sort options  the pill-shaped variant of
+ * the manager's selector row, drawn from the same tokens ([MorpheDefaults.PillShape], the
+ * surface/onSurface pair) rather than colours of its own.
+ */
 @Composable
 private fun CompactPill(
     label: String,
@@ -4694,15 +4701,16 @@ private fun AppBrowserScreen(
                                 Surface(
                                     onClick = { scope.launch { listState.animateScrollToItem(0) } },
                                     shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    color = SemanticTone.Primary.container,
+                                    contentColor = SemanticTone.Primary.content,
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
                                         .padding(end = 32.dp, bottom = 20.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.KeyboardArrowUp,
+                                    ThemedIcon(
+                                        icon = Icons.Outlined.KeyboardArrowUp,
                                         contentDescription = "Go to top",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        tint = SemanticTone.Primary.content,
                                         modifier = Modifier.padding(12.dp)
                                     )
                                 }
@@ -4783,7 +4791,7 @@ private fun AppBrowserRow(
                 },
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(MorpheDefaults.PillShape)
                     .clickable(onClick = onToggleFavourite)
                     .padding(6.dp)
             )
@@ -4844,12 +4852,12 @@ private fun AsyncAvatar(
             modifier = Modifier
                 .size(size)
                 .clip(RoundedCornerShape(cornerRadius))
-                .background(MaterialTheme.colorScheme.primaryContainer),
+                .background(SemanticTone.Primary.container),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = fallbackText,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = SemanticTone.Primary.content,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
             )
@@ -5403,7 +5411,7 @@ private fun AppInfoHeader(
                         },
                         modifier = Modifier
                             .size(16.dp)
-                            .clip(RoundedCornerShape(50))
+                            .clip(MorpheDefaults.PillShape)
                             .clickable {
                                 clipboard?.setPrimaryClip(
                                     ClipData.newPlainText("package", request.packageName)
@@ -5541,7 +5549,7 @@ private fun AppInfoFormatCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
+                            .clip(MorpheDefaults.PillShape)
                             .clickable { expanded = !expanded }
                             .padding(horizontal = 2.dp, vertical = 2.dp)
                     ) {
@@ -5551,7 +5559,7 @@ private fun AppInfoFormatCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
+                                    .clip(MorpheDefaults.PillShape)
                                     .background(
                                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                     )
@@ -5642,7 +5650,7 @@ private fun AppInfoArchCard(abis: List<String>) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
+                            .clip(MorpheDefaults.PillShape)
                             .background(
                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             )
@@ -5705,7 +5713,7 @@ private fun AppAvatar(packageName: String, initial: Char) {
             contentDescription = null,
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
         )
     } else {
         val colors = listOf(
@@ -5720,7 +5728,7 @@ private fun AppAvatar(packageName: String, initial: Char) {
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
                 .background(color.copy(alpha = 0.85f)),
             contentAlignment = Alignment.Center
         ) {
@@ -5973,7 +5981,7 @@ private fun SourcePickerFlow(
                 // Tapping the title toggles the source cards.
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
+                        .clip(MorpheDefaults.PillShape)
                         .clickable { sourcesExpanded = !sourcesExpanded }
                         .padding(horizontal = 4.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -6006,7 +6014,7 @@ private fun SourcePickerFlow(
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
+                        .clip(MorpheDefaults.PillShape)
                         .clickable { showHowItWorks = !showHowItWorks }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
@@ -6287,18 +6295,15 @@ private fun SourceCard(
         ((group.latest as? ResolveState.Done)?.candidates?.isNotEmpty() == true ||
             (group.recommended as? ResolveState.Done)?.candidates?.isNotEmpty() == true)
 
-    val shape = RoundedCornerShape(16.dp)
-    Surface(
+    SettingsItemCard(
+        onClick = onClick,
+        borderWidth = if (selected) 1.5.dp else 1.dp,
+        borderColor = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant
+        },
         modifier = modifier
-            .clip(shape)
-            .clickable(onClick = onClick),
-        shape = shape,
-        color = sourceCardFill(),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else sourceCardBorder()
-        )
     ) {
         Row(
             modifier = Modifier
@@ -6383,15 +6388,11 @@ private fun RadioDot(selected: Boolean) {
 
 @Composable
 private fun SelectedSourceBar(source: DownloadSource) {
-    val shape = RoundedCornerShape(16.dp)
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape),
-        shape = shape,
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
+    SurfaceCard(
+        cornerRadius = MorpheDefaults.CardCornerRadius,
+        borderWidth = 1.5.dp,
+        borderColor = SemanticTone.Primary.accent.copy(alpha = 0.65f),
+        color = SemanticTone.Primary.container.copy(alpha = 0.4f)
     ) {
         Row(
             modifier = Modifier
@@ -6407,21 +6408,21 @@ private fun SelectedSourceBar(source: DownloadSource) {
             ) {
                 Text(
                     text = "Selected source",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = SemanticTone.Primary.content.copy(alpha = 0.75f),
                     style = MaterialTheme.typography.labelSmall
                 )
                 Text(
                     text = source.label,
                     fontWeight = FontWeight.Bold,
+                    color = SemanticTone.Primary.content,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Icon(
-                imageVector = Icons.Outlined.CheckCircle,
+            ThemedIcon(
+                icon = Icons.Outlined.CheckCircle,
                 contentDescription = "Selected",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
+                size = 22.dp
             )
         }
     }
@@ -6641,90 +6642,13 @@ private fun VersionTypeRow(
     selected: SourceSubTab,
     onSelect: (SourceSubTab) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        tabs.forEach { tab ->
-            VersionTypeCard(
-                tab = tab,
-                selected = tab == selected,
-                onClick = { onSelect(tab) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-}
-
-@Composable
-private fun VersionTypeCard(
-    tab: SourceSubTab,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    IconTabCard(
-        label = tab.label,
-        icon = tab.icon,
-        selected = selected,
-        onClick = onClick,
-        modifier = modifier
+    MorpheSelectorRow(
+        options = tabs.map { MorpheSelectorOption(label = it.label, icon = it.icon) },
+        selectedIndex = tabs.indexOf(selected),
+        onSelect = { onSelect(tabs[it]) },
+        // labelLarge keeps four-in-a-row tab labels on one line at phone widths.
+        labelStyle = MaterialTheme.typography.labelLarge
     )
-}
-
-/** Icon + label card used for tab rows (home version types and settings tabs). */
-@Composable
-private fun IconTabCard(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(16.dp)
-    // The manager's CardSelectorRow: the selected mode is carried by the fill
-    // and a stronger border rather than a colour wash.
-    Surface(
-        modifier = modifier
-            .clip(shape)
-            .clickable(onClick = onClick),
-        shape = shape,
-        color = if (selected) colors.surfaceVariant else Color.Transparent,
-        contentColor = colors.onSurface,
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 0.5.dp,
-            color = colors.onSurface.copy(alpha = if (selected) 0.5f else 0.2f)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
-        ) {
-            ThemedIcon(
-                icon = icon,
-                size = MorpheDefaults.IconSize,
-                tint = if (selected) {
-                    colors.onSurface
-                } else {
-                    colors.onSurface.copy(alpha = 0.4f)
-                }
-            )
-            Text(
-                text = label,
-                // labelLarge keeps four-in-a-row tab labels on one line at phone widths.
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                color = if (selected) colors.onSurface else colors.onSurface.copy(alpha = 0.5f)
-            )
-        }
-    }
 }
 
 /**
@@ -6745,20 +6669,11 @@ private fun SettingsTabRow(
     selected: SettingsTab,
     onSelect: (SettingsTab) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        SettingsTab.entries.forEach { tab ->
-            IconTabCard(
-                label = tab.label,
-                icon = tab.icon,
-                selected = tab == selected,
-                onClick = { onSelect(tab) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
+    MorpheSelectorRow(
+        options = SettingsTab.entries.map { MorpheSelectorOption(label = it.label, icon = it.icon) },
+        selectedIndex = SettingsTab.entries.indexOf(selected),
+        onSelect = { onSelect(SettingsTab.entries[it]) }
+    )
 }
 
 @Composable
@@ -7467,7 +7382,7 @@ private fun FastModeCard(
                                 ?: "Which version should Fast Mode fetch?",
                             titleStyle = MaterialTheme.typography.bodyMedium,
                             titleWeight = FontWeight.Normal,
-                            titleColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            titleColor = SemanticTone.Primary.content
                         )
                         progress.versionChoiceRequested?.let { requested ->
                             Row(
@@ -7478,7 +7393,7 @@ private fun FastModeCard(
                                 Text(
                                     text = "Requested",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                    color = SemanticTone.Primary.content.copy(alpha = 0.7f)
                                 )
                                 Text(
                                     text = requested,
@@ -7530,7 +7445,7 @@ private fun FastModeCard(
                         title = progress.mismatchDetail ?: "Version code mismatch.",
                         titleStyle = MaterialTheme.typography.bodyMedium,
                         titleWeight = FontWeight.Normal,
-                        titleColor = MaterialTheme.colorScheme.onErrorContainer
+                        titleColor = SemanticTone.Error.content
                     )
                 }
                 Row(
@@ -8017,7 +7932,7 @@ private fun ScanResultCard(
                                 size = 16.dp,
                                 tint = colors.primary,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
+                                    .clip(MorpheDefaults.PillShape)
                                     .clickable { openVirusTotalPage(context, apk.sha256) }
                                     .padding(2.dp)
                             )
