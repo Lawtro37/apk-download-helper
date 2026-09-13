@@ -1073,6 +1073,10 @@ internal fun MorphePillButton(
     val interactionSource = remember { MutableInteractionSource() }
     val height = if (tall) MorpheDefaults.PillHeightLarge else MorpheDefaults.PillHeight
     val iconSize = if (tall) 20.dp else 18.dp
+    // Without a label the pill has nothing to stretch for, so it stays a circle. A
+    // filled row here would otherwise take every pixel left in the row it sits in and
+    // push whatever follows it off the edge.
+    val iconOnly = label == null
 
     Surface(
         onClick = onClick,
@@ -1083,14 +1087,19 @@ internal fun MorphePillButton(
         interactionSource = interactionSource,
         modifier = modifier
             .height(height)
+            .then(if (iconOnly) Modifier.width(height) else Modifier)
             .pressScale(interactionSource = interactionSource, enabled = enabled)
             .semantics { role = Role.Button }
     ) {
         Box(contentAlignment = Alignment.Center) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = MorpheDefaults.ContentPadding),
+                modifier = if (iconOnly) {
+                    Modifier
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = MorpheDefaults.ContentPadding)
+                },
                 // Centred rather than start-aligned: these pills stretch to fill a card
                 // row, and a start-aligned icon+label would sit against the left edge with
                 // dead space beside it.

@@ -5004,6 +5004,10 @@ private fun AppDetailView(
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }
     }
+    // Forks re-release their upstream's patches under their own name, so the same
+    // set can arrive from several repos. Collapsing them keeps a mirror from
+    // reading as an independent choice.
+    val sourceGroups = remember(app.sources) { groupArchiveSources(app.sources) }
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
@@ -5054,15 +5058,16 @@ private fun AppDetailView(
                 )
             }
         }
-        if (app.sources.isEmpty()) {
+        if (sourceGroups.isEmpty()) {
             item { MorpheEmptyState(message = "No patch sources listed for this app.") }
         } else {
             item {
                 MorpheSectionTitle(text = "Sources", icon = Icons.Outlined.Dns)
             }
-            items(app.sources, key = { it.repo }) { source ->
+            items(sourceGroups, key = { it.primary.repo }) { group ->
                 AppSourceCard(
-                    source = source,
+                    source = group.primary,
+                    mirrors = group.mirrors,
                     onOpenUrl = openUrl,
                     onAddToMorphe = { openAddSource(context, it) }
                 )
@@ -5072,15 +5077,21 @@ private fun AppDetailView(
 }
 
 /**
- * One patch source with its own collapsible patch list (collapsed by default)
- * so patches are clearly attributed to the repo that ships them. The
- * Add-to-Morphe / Open-repo actions stay visible whether or not it's expanded.
+ * One patch set, led by the repo that ships it, with its own collapsible patch
+ * list (collapsed by default) so patches are clearly attributed to the repo that
+ * provides them. The Add-to-Morphe / Open-repo actions stay visible whether or
+ * not it's expanded.
+ *
+ * [mirrors] are the other repos offering the identical set. They stay reachable
+ * with their own actions, but folded away, since listing them as equals would
+ * present a fork as its own choice.
  */
 @Composable
 private fun AppSourceCard(
     source: ArchiveSource,
     onOpenUrl: (String) -> Unit,
-    onAddToMorphe: (String) -> Unit
+    onAddToMorphe: (String) -> Unit,
+    mirrors: List<ArchiveSource> = emptyList()
 ) {
     var expanded by remember(source.repo) { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
@@ -5121,6 +5132,16 @@ private fun AppSourceCard(
                         color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall
                     )
+                    if (mirrors.isNotEmpty()) {
+                        Text(
+                            text = "Same patches in ${mirrors.size} other " +
+                                (if (mirrors.size == 1) "repo" else "repos"),
+                            color = colors.onSurfaceVariant.copy(alpha = 0.75f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 Icon(
                     imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
@@ -5217,6 +5238,54 @@ private fun AppSourceCard(
                                     scrollState = patchesScroll,
                                     modifier = Modifier.fillMaxHeight()
                                 )
+                            }
+                        }
+                    }
+
+                    if (mirrors.isNotEmpty()) {
+                        MorpheDivider(fullWidth = true)
+                        Text(
+                            text = "Same patches also provided by",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        // Each keeps its own Add / Open actions, so folding the
+                        // mirrors away costs the ability to see them, not to use them.
+                        mirrors.forEach { mirror ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncAvatar(
+                                    url = MorpheArchive.avatarUrlFor(mirror),
+                                    fallbackText = mirror.repo
+                                        .firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                                    size = 24.dp,
+                                    cornerRadius = 8.dp
+                                )
+                                Text(
+                                    text = mirror.repo,
+                                    modifier = Modifier.weight(1f),
+                                    color = colors.onSurface,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                mirror.addUrl?.takeIf { it.isNotBlank() }?.let { addUrl ->
+                                    MorphePillButton(
+                                        onClick = { onAddToMorphe(addUrl) },
+                                        icon = Icons.Outlined.Add,
+                                        contentDescription = "Add ${mirror.repo} to Morphe"
+                                    )
+                                }
+                                mirror.webUrl?.takeIf { it.isNotBlank() }?.let { webUrl ->
+                                    MorphePillButton(
+                                        onClick = { onOpenUrl(webUrl) },
+                                        icon = Icons.Outlined.OpenInNew,
+                                        contentDescription = "Open ${mirror.repo}"
+                                    )
+                                }
                             }
                         }
                     }

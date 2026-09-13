@@ -45,8 +45,47 @@ internal data class ArchiveSource(
     @SerializedName("host") val host: String? = null,
     @SerializedName("webUrl") val webUrl: String? = null,
     @SerializedName("addUrl") val addUrl: String? = null,
-    @SerializedName("patches") val patches: List<ArchivePatch> = emptyList()
+    @SerializedName("patches") val patches: List<ArchivePatch> = emptyList(),
+    /** The repo's latest release, used to rank otherwise identical sources. */
+    @SerializedName("latestChanges") val latestChanges: ArchiveChanges? = null
 )
+
+/** A repo's most recent release, as published in its patch bundle. */
+internal data class ArchiveChanges(
+    @SerializedName("title") val title: String = "",
+    @SerializedName("date") val date: String? = null
+)
+
+/** One patch set for an app: the repo carrying it, plus any repos carrying the same one. */
+internal data class ArchiveSourceGroup(
+    val primary: ArchiveSource,
+    val mirrors: List<ArchiveSource>
+)
+
+/**
+ * Collapses [sources] into one entry per distinct patch set.
+ *
+ * A fork re-releases its upstream's patches under its own name, so the index
+ * lists both and a mirror ends up looking like an independent choice. The set of
+ * patch names is what identifies a group, so identical sets in a different order
+ * still count as one.
+ *
+ * The newest release leads each group, and the groups, so the maintained copy is
+ * the one on top. Ties keep the index's own order, the sorts being stable.
+ */
+internal fun groupArchiveSources(sources: List<ArchiveSource>): List<ArchiveSourceGroup> {
+    val byPatchSet = LinkedHashMap<String, MutableList<ArchiveSource>>()
+    sources.forEach { source ->
+        val key = source.patches.map { it.name }.sorted().joinToString("\u0000")
+        byPatchSet.getOrPut(key) { mutableListOf() }.add(source)
+    }
+    return byPatchSet.values
+        .map { members ->
+            val ranked = members.sortedByDescending { it.latestChanges?.date.orEmpty() }
+            ArchiveSourceGroup(primary = ranked.first(), mirrors = ranked.drop(1))
+        }
+        .sortedByDescending { it.primary.latestChanges?.date.orEmpty() }
+}
 
 /**
  * Fetches the Morphe archive index over the network on every call.
