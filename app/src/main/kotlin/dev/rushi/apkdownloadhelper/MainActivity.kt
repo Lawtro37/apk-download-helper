@@ -5313,14 +5313,30 @@ private fun AppSourceCard(
                                     size = 24.dp,
                                     cornerRadius = 8.dp
                                 )
-                                Text(
-                                    text = mirror.repo,
+                                Column(
                                     modifier = Modifier.weight(1f),
-                                    color = colors.onSurface,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = mirror.repo,
+                                        color = colors.onSurface,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    // The lead is chosen by release date, so a mirror has to
+                                    // show its own for the order to be checkable rather than
+                                    // taken on faith.
+                                    formatBundleRelease(mirror.latestChanges)?.let { release ->
+                                        Text(
+                                            text = release,
+                                            color = colors.onSurfaceVariant.copy(alpha = 0.75f),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                                 mirror.addUrl?.takeIf { it.isNotBlank() }?.let { addUrl ->
                                     MorphePillButton(
                                         onClick = { onAddToMorphe(addUrl) },
