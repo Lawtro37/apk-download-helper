@@ -59,4 +59,62 @@ class MorpheArchiveReleaseTest {
         assertNull(formatBundleRelease(null))
         assertNull(formatBundleRelease(ArchiveChanges()))
     }
+
+    private fun app(vararg sources: ArchiveSource) = ArchiveApp(
+        packageName = "com.example",
+        name = "Example",
+        sources = sources.toList()
+    )
+
+    private fun source(repo: String, title: String = "", date: String? = null) = ArchiveSource(
+        repo = repo,
+        latestChanges = ArchiveChanges(title = title, date = date)
+    )
+
+    @Test
+    fun `the newest release across an app's sources wins`() {
+        val newest = app(
+            source("a/patches", date = "2026-09-06"),
+            source("b/patches", date = "2026-09-08"),
+            source("c/patches", date = "2026-08-19")
+        ).newestReleaseDate()
+
+        // ISO, so the list's sort can compare it as plain text.
+        assertEquals("2026-09-08", newest)
+    }
+
+    @Test
+    fun `the newest release can come from a title's own date`() {
+        val newest = app(
+            source("a/patches", title = "1.21.5 (2026-09-08)"),
+            source("b/patches", date = "2026-08-19")
+        ).newestReleaseDate()
+
+        assertEquals("2026-09-08", newest)
+    }
+
+    @Test
+    fun `a date-shaped changelog string cannot win the sort`() {
+        // "2026-09-06" as a title would sort above August; only real dates count.
+        val newest = app(
+            source("a/patches", date = "last Tuesday"),
+            source("b/patches", date = "2026-08-19")
+        ).newestReleaseDate()
+
+        assertEquals("2026-08-19", newest)
+    }
+
+    @Test
+    fun `an app whose sources declare no release has no date`() {
+        assertNull(app(source("a/patches"), source("b/patches")).newestReleaseDate())
+        assertNull(app().newestReleaseDate())
+    }
+
+    @Test
+    fun `the date field is preferred over the title`() {
+        val changes = ArchiveChanges(title = "1.0.0 (2026-09-08)", date = "2026-09-06")
+
+        assertEquals("2026-09-06", releaseDateOf(changes))
+        assertNull(releaseDateOf(null))
+    }
 }

@@ -151,21 +151,46 @@ internal fun archiveFreshness(
  * Returns null when the bundle declares no release at all, rather than inventing one.
  */
 internal fun formatBundleRelease(changes: ArchiveChanges?): String? {
-    val title = changes?.title?.trim().orEmpty()
-    val version = title.substringBefore(" (").trim()
-        .takeIf { it.isNotEmpty() }
+    val version = changes?.title?.substringBefore(" (")?.trim()
+        .takeIf { !it.isNullOrEmpty() }
         // Bundles write the version bare; the `v` reads as a version rather than a
         // number in a line that also carries a patch count and a date.
         ?.let { if (it.first().isDigit()) "v$it" else it }
-    // The date field is the reliable one; the parenthesised part of the title is
-    // the fallback for bundles that never set it.
-    val date = formatBundleDate(changes?.date)
-        ?: formatBundleDate(title.substringAfter('(', "").substringBefore(')').trim())
+    val date = formatReleaseDate(releaseDateOf(changes))
     return listOfNotNull(version, date).takeIf { it.isNotEmpty() }?.joinToString(" \u00b7 ")
 }
 
+/**
+ * The day a repo's changelog entry was published, as the bundle writes it.
+ *
+ * The dedicated date field wins; the parenthesised part of the title covers the
+ * bundles that never set one. Null when the entry says nothing either way.
+ */
+internal fun releaseDateOf(changes: ArchiveChanges?): String? {
+    val field = changes?.date?.trim().orEmpty()
+    if (field.isNotEmpty()) return field
+    val title = changes?.title.orEmpty()
+    return title.substringAfter('(', "").substringBefore(')').trim().takeIf { it.isNotEmpty() }
+}
+
+/** Well-formed dates only, so a stray changelog string cannot decide an ordering. */
+private val ISO_DATE = Regex("""\d{4}-\d{2}-\d{2}""")
+
+/**
+ * The newest release date any of the app's sources declares.
+ *
+ * Kept as the ISO date so it sorts chronologically as plain text, and so the list
+ * can show an index entry whose sources have moved on since the last archive build.
+ * Null when no source declares one, which drops the app to the end of that sort
+ * rather than inventing a date for it.
+ */
+internal fun ArchiveApp.newestReleaseDate(): String? = sources
+    .mapNotNull { releaseDateOf(it.latestChanges) }
+    .filter { ISO_DATE.matches(it) }
+    .maxOrNull()
+
 /** `2026-09-08` as `8 Sep 2026`, or the value unchanged when it is not a date. */
-private fun formatBundleDate(value: String?): String? {
+internal fun formatReleaseDate(value: String?): String? {
     val raw = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val utc = TimeZone.getTimeZone("UTC")
     val parsed = runCatching {

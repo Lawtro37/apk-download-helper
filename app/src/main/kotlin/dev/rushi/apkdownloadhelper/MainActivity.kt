@@ -4482,7 +4482,9 @@ private enum class AppSort(val label: String, val icon: ImageVector, val rotatio
     AZ("A–Z", Icons.Outlined.SortByAlpha),
     // Same glyph flipped 180° so it reads descending (mirror of A–Z).
     ZA("Z–A", Icons.Outlined.SortByAlpha, 180f),
-    Sources("Sources", Icons.Outlined.Extension)
+    Sources("Sources", Icons.Outlined.Extension),
+    // Newest first, by the most recent release any of the app's sources declares.
+    Newest("Newest", Icons.Outlined.History)
 }
 
 /**
@@ -4754,6 +4756,12 @@ private fun AppBrowserScreen(
                                 AppSort.AZ -> matches.sortedBy { it.name.lowercase(Locale.US) }
                                 AppSort.ZA -> matches.sortedByDescending { it.name.lowercase(Locale.US) }
                                 AppSort.Sources -> matches.sortedByDescending { it.sourceCount }
+                                // Keyed once per app and then sorted, rather than
+                                // recomputing the newest release on every comparison.
+                                AppSort.Newest -> matches
+                                    .map { app -> app.newestReleaseDate().orEmpty() to app }
+                                    .sortedByDescending { it.first }
+                                    .map { it.second }
                             }
                         }
                     // The disclaimer and the two selector rows are the tallest thing on
@@ -4922,6 +4930,17 @@ private fun AppBrowserRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                // When the sources last published patches for this app, so an index
+                // row that has fallen behind shows it before the app is opened.
+                formatReleaseDate(app.newestReleaseDate())?.let { released ->
+                    Text(
+                        text = "Updated $released",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
