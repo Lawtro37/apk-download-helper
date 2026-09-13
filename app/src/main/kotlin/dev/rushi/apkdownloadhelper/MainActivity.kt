@@ -97,6 +97,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Download
@@ -188,6 +189,8 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
@@ -3060,7 +3063,7 @@ private fun HelperSettingsScreen(
 ) {
     val context = LocalContext.current
     val swipeThresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
-    var tab by rememberSaveable { mutableStateOf(SettingsTab.Settings) }
+    var tab by rememberSaveable { mutableStateOf(SettingsTab.SYSTEM) }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -3119,37 +3122,31 @@ private fun HelperSettingsScreen(
             )
         }
 
-        if (tab == SettingsTab.Settings) {
-            item {
-                HelperSettingsCard(
+        when (tab) {
+            SettingsTab.APPEARANCE -> item {
+                AppearanceTabContent(
                     settings = settings,
                     onSettingsChange = onSettingsChange
                 )
             }
-        }
 
-        if (tab == SettingsTab.Health) {
-            item {
-                SourceHealthCard()
-            }
-        }
-
-        if (tab == SettingsTab.History) {
-            item {
-                DownloadHistorySection(
-                    entries = historyEntries,
-                    onClear = onClearHistory,
-                    onOpen = onOpenHistoryEntry,
-                    onShare = onShareHistoryEntry
+            SettingsTab.SYSTEM -> item {
+                SystemTabContent(
+                    settings = settings,
+                    onSettingsChange = onSettingsChange
                 )
             }
-        }
 
-        if (tab == SettingsTab.Logs) {
-            item {
-                RequestLogsCard(
+            SettingsTab.ADVANCED -> item {
+                AdvancedTabContent(
+                    settings = settings,
+                    onSettingsChange = onSettingsChange,
                     logs = logs,
-                    onClearLogs = onClearLogs
+                    onClearLogs = onClearLogs,
+                    historyEntries = historyEntries,
+                    onOpenHistoryEntry = onOpenHistoryEntry,
+                    onShareHistoryEntry = onShareHistoryEntry,
+                    onClearHistory = onClearHistory
                 )
             }
         }
@@ -3157,249 +3154,156 @@ private fun HelperSettingsScreen(
 }
 
 @Composable
-private fun HelperSettingsCard(
+private fun SystemTabContent(
     settings: HelperSettings,
     onSettingsChange: (HelperSettings) -> Unit
 ) {
     val context = LocalContext.current
     var cacheBytes by remember(context) { mutableStateOf(context.temporaryDownloadsSize()) }
-    var defaultSourceExpanded by remember { mutableStateOf(false) }
     var downloadsBytes by remember(context) { mutableStateOf(context.downloadsCopySize()) }
+    var locationDialog by remember { mutableStateOf(false) }
+    var policyDialog by remember { mutableStateOf(false) }
+    var fastModePolicyDialog by remember { mutableStateOf(false) }
+    var sourceDialog by remember { mutableStateOf(false) }
+
+    val locations = DownloadLocation.entries
+    val policies = NetworkPolicy.entries
+    val fastPolicies = FastModePolicy.entries
+
+    if (locationDialog) {
+        SettingsChoiceDialog(
+            title = "Save downloads",
+            choices = locations.map { SettingsChoice(it.icon(), it.title, it.description) },
+            selectedIndex = locations.indexOf(settings.downloadLocation),
+            onSelect = { index ->
+                onSettingsChange(settings.copy(downloadLocation = locations[index]))
+                locationDialog = false
+            },
+            onDismiss = { locationDialog = false }
+        )
+    }
+
+    if (policyDialog) {
+        SettingsChoiceDialog(
+            title = "Connection",
+            choices = policies.map { SettingsChoice(it.icon(), it.title, it.description) },
+            selectedIndex = policies.indexOf(settings.networkPolicy),
+            onSelect = { index ->
+                onSettingsChange(settings.copy(networkPolicy = policies[index]))
+                policyDialog = false
+            },
+            onDismiss = { policyDialog = false }
+        )
+    }
+
+    if (fastModePolicyDialog) {
+        SettingsChoiceDialog(
+            title = "Which version to fetch",
+            choices = fastPolicies.map { policy ->
+                SettingsChoice(
+                    icon = when (policy) {
+                        FastModePolicy.REQUESTED -> Icons.Outlined.Tune
+                        FastModePolicy.LATEST -> Icons.Outlined.TrendingUp
+                        FastModePolicy.ALWAYS_ASK -> Icons.Outlined.HelpOutline
+                    },
+                    title = policy.title,
+                    description = policy.description
+                )
+            },
+            selectedIndex = fastPolicies.indexOf(settings.fastModePolicy),
+            onSelect = { index ->
+                onSettingsChange(settings.copy(fastModePolicy = fastPolicies[index]))
+                fastModePolicyDialog = false
+            },
+            onDismiss = { fastModePolicyDialog = false }
+        )
+    }
+
+    if (sourceDialog) {
+        val choices = buildList {
+            add(SettingsChoice(Icons.Outlined.AutoAwesome, "Automatic", "Use the first enabled source"))
+            addAll(sourceCategories.flatMap { (_, sources) -> sources }
+                .map { SettingsChoice(Icons.Outlined.Dns, it.label, "Prefer this source when it has the file") })
+        }
+        SettingsChoiceDialog(
+            title = "Default source",
+            choices = choices,
+            selectedIndex = settings.preferredSource?.let { source -> choices.indexOfFirst { it.title == source.label } } ?: 0,
+            onSelect = { index ->
+                onSettingsChange(
+                    settings.copy(
+                        preferredSource = if (index == 0) {
+                            null
+                        } else {
+                            sourceCategories.flatMap { (_, sources) -> sources }[index - 1]
+                        }
+                    )
+                )
+                sourceDialog = false
+            },
+            onDismiss = { sourceDialog = false }
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingMedium)
     ) {
-        SettingsGroupCard("Save downloads") {
-            DownloadLocation.entries.forEach { location ->
-                SettingsOptionCard(
-                    icon = location.icon(),
-                    title = location.title,
-                    description = location.description,
-                    selected = settings.downloadLocation == location,
-                    onClick = {
-                        onSettingsChange(settings.copy(downloadLocation = location))
-                    }
-                )
-            }
-            SettingsStorageCard(
-                cacheBytes = cacheBytes,
-                downloadsBytes = downloadsBytes,
-                onClear = {
+        SettingsGroup(title = "Downloads & storage", icon = Icons.Outlined.SdStorage) {
+            SettingsRow(
+                icon = settings.downloadLocation.icon(),
+                title = "Save downloads",
+                subtitle = settings.downloadLocation.description,
+                value = settings.downloadLocation.title,
+                onClick = { locationDialog = true }
+            )
+            MorpheDivider()
+            SettingsRow(
+                icon = Icons.Outlined.CleaningServices,
+                title = "Storage used",
+                subtitle = "Helper cache ${cacheBytes.formatBytes()}  ·  Downloads copy ${downloadsBytes.formatBytes()}",
+                value = "Clear",
+                onClick = {
                     context.clearTemporaryDownloads()
                     context.clearDownloadsCopies()
                     cacheBytes = 0L
                     downloadsBytes = 0L
                 }
             )
-            SettingSwitchRow(
-                icon = Icons.Outlined.CleaningServices,
+            MorpheDivider()
+            SettingsSwitchItem(
+                icon = Icons.Outlined.DeleteOutline,
                 title = "Auto-clear after hand-off",
-                description = "Remove temporary APKs after handing off to Morphe, and clear old cache files on launch.",
+                subtitle = "Remove temporary APKs after handing off to Morphe, and clear old cache files on launch.",
                 checked = settings.deleteTemporaryAfterHandoff,
-                onCheckedChange = {
-                    onSettingsChange(settings.copy(deleteTemporaryAfterHandoff = it))
+                onToggle = {
+                    onSettingsChange(settings.copy(deleteTemporaryAfterHandoff = !settings.deleteTemporaryAfterHandoff))
                 }
             )
         }
 
-        SettingsGroupCard("Connection") {
-            NetworkPolicy.entries.forEach { policy ->
-                SettingsOptionCard(
-                    icon = policy.icon(),
-                    title = policy.title,
-                    description = policy.description,
-                    selected = settings.networkPolicy == policy,
-                    onClick = {
-                        onSettingsChange(settings.copy(networkPolicy = policy))
-                    }
-                )
-            }
-            SettingSwitchRow(
-                icon = Icons.Outlined.Dns,
-                title = "AdGuard DNS",
-                description = "Resolve app traffic through AdGuard DNS (blocks ads and trackers on " +
-                    "download pages and in the in-app captcha browser). Falls back to the " +
-                    "system resolver whenever it fails.",
-                checked = settings.adGuardDns,
-                onCheckedChange = {
-                    onSettingsChange(settings.copy(adGuardDns = it))
-                }
+        SettingsGroup(title = "Sources", icon = Icons.Outlined.Dns) {
+            SettingsRow(
+                icon = Icons.Outlined.Star,
+                title = "Default source",
+                subtitle = "Used first when a request is resolved",
+                value = settings.preferredSource?.label ?: "Automatic",
+                onClick = { sourceDialog = true }
             )
-        }
-
-        SettingsGroupCard("Security") {
-            SettingSwitchRow(
-                icon = Icons.Outlined.Shield,
-                title = "VirusTotal scanning",
-                description = "Scan downloaded files with VirusTotal before returning them to Morphe.",
-                checked = settings.virusTotalEnabled,
-                onCheckedChange = {
-                    onSettingsChange(settings.copy(virusTotalEnabled = it))
-                }
-            )
-            if (settings.virusTotalEnabled) {
-                VirusTotalScanMode.entries.forEach { mode ->
-                    SettingsOptionCard(
-                        icon = when (mode) {
-                            VirusTotalScanMode.NEVER -> Icons.Outlined.Block
-                            VirusTotalScanMode.ASK -> Icons.Outlined.HelpOutline
-                            VirusTotalScanMode.ALWAYS -> Icons.Outlined.CheckCircle
-                        },
-                        title = mode.title,
-                        description = mode.description,
-                        selected = settings.virusTotalScanMode == mode,
-                        onClick = {
-                            onSettingsChange(settings.copy(virusTotalScanMode = mode))
-                        }
-                    )
-                }
-                SettingTextFieldRow(
-                    icon = Icons.Outlined.Key,
-                    title = "API key",
-                    description = "Get your free key at virustotal.com",
-                    value = settings.virusTotalApiKey,
-                    onValueChange = {
-                        onSettingsChange(settings.copy(virusTotalApiKey = it))
-                    }
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
-                        .clickable {
-                            val open = Intent(
-                                Intent.ACTION_VIEW,
-                                Uri.parse("https://docs.virustotal.com/docs/please-give-me-an-api-key")
-                            ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                            runCatching { context.startActivity(open) }
-                                .onFailure {
-                                    Toast.makeText(
-                                        context,
-                                        "No browser available",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                        }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "How to get a free API key",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(
-                        imageVector = Icons.Outlined.OpenInNew,
-                        contentDescription = "Open VirusTotal API key guide",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                if (settings.virusTotalApiKey.isNotBlank()) {
-                    VirusTotalQuotaCard(apiKey = settings.virusTotalApiKey)
-                }
-            }
-        }
-
-        SettingsGroupCard("Appearance") {
-            ThemeMode.entries.forEach { mode ->
-                SettingsOptionCard(
-                    icon = mode.icon(),
-                    title = mode.title,
-                    description = mode.description,
-                    selected = settings.themeMode == mode,
-                    onClick = {
-                        onSettingsChange(settings.copy(themeMode = mode))
-                    }
-                )
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                SettingSwitchRow(
-                    icon = Icons.Outlined.Palette,
-                    title = "Material You colors",
-                    description = "Tint the app from your wallpaper instead of the default blue accent.",
-                    checked = settings.dynamicColors,
-                    onCheckedChange = {
-                        onSettingsChange(settings.copy(dynamicColors = it))
-                    }
-                )
-            }
-        }
-
-        SettingsGroupCard("Sources") {
-            // Preferred source: one compact row + dropdown instead of a long
-            // radio list, so choosing the default doesn't dominate the screen.
-            Box {
-                SettingsDropdownCard(
-                    icon = Icons.Outlined.Star,
-                    title = "Default source",
-                    value = settings.preferredSource?.label
-                        ?: "Automatic (first enabled source)",
-                    onClick = { defaultSourceExpanded = true }
-                )
-                DropdownMenu(
-                    expanded = defaultSourceExpanded,
-                    onDismissRequest = { defaultSourceExpanded = false },
-                    modifier = Modifier.fillMaxWidth(0.85f)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Automatic (first enabled source)") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoAwesome,
-                                contentDescription = null
-                            )
-                        },
-                        trailingIcon = {
-                            if (settings.preferredSource == null) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Check,
-                                    contentDescription = null
-                                )
-                            }
-                        },
-                        onClick = {
-                            onSettingsChange(settings.copy(preferredSource = null))
-                            defaultSourceExpanded = false
-                        }
-                    )
-                    sourceCategories.forEach { (title, catSources) ->
-                        val visibleSources = catSources.filter { src ->
-                            val disabled = settings.disabledSources
-                            src !in disabled ||
-                                (disabled.size >= DownloadSource.entries.size && src == DownloadSource.PLAY)
-                        }
-                        if (visibleSources.isNotEmpty()) {
-                            SourceMenuHeader(title)
-                            visibleSources.forEach { src ->
-                                SourceMenuItem(
-                                    source = src,
-                                    selected = settings.preferredSource == src,
-                                    onClick = {
-                                        onSettingsChange(settings.copy(preferredSource = src))
-                                        defaultSourceExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
             DownloadSource.entries.forEach { source ->
-                SourceToggleRow(
-                    source = source,
-                    enabled = source !in settings.disabledSources,
-                    onToggle = { on ->
+                MorpheDivider()
+                SettingsSwitchItem(
+                    icon = Icons.Outlined.Dns,
+                    title = source.label,
+                    checked = source !in settings.disabledSources,
+                    onToggle = {
+                        val enabled = source !in settings.disabledSources
                         onSettingsChange(
                             settings.copy(
-                                disabledSources = if (on) {
-                                    settings.disabledSources - source
-                                } else {
+                                disabledSources = if (enabled) {
                                     settings.disabledSources + source
+                                } else {
+                                    settings.disabledSources - source
                                 }
                             )
                         )
@@ -3408,70 +3312,409 @@ private fun HelperSettingsCard(
             }
         }
 
-        SettingsGroupCard("Fast Mode") {
-            SettingSwitchRow(
+        SettingsGroup(title = "Connection", icon = Icons.Outlined.NetworkCheck) {
+            SettingsRow(
+                icon = settings.networkPolicy.icon(),
+                title = "Network policy",
+                subtitle = settings.networkPolicy.description,
+                value = settings.networkPolicy.title,
+                onClick = { policyDialog = true }
+            )
+            MorpheDivider()
+            SettingsSwitchItem(
+                icon = Icons.Outlined.Dns,
+                title = "AdGuard DNS",
+                subtitle = "Blocks ads and trackers on download pages and in the captcha browser. " +
+                    "Falls back to the system resolver whenever it fails.",
+                checked = settings.adGuardDns,
+                onToggle = {
+                    onSettingsChange(settings.copy(adGuardDns = !settings.adGuardDns))
+                }
+            )
+        }
+
+        SettingsGroup(title = "Fast Mode", icon = Icons.Outlined.Bolt) {
+            SettingsSwitchItem(
                 icon = Icons.Outlined.Bolt,
                 title = "Fast Mode",
-                description = "Auto-fetch a version across sources and return it to Morphe automatically. " +
+                subtitle = "Auto-fetch a version across sources and return it to Morphe automatically. " +
                     "Format differences are allowed.",
                 checked = settings.fastMode,
-                onCheckedChange = {
-                    onSettingsChange(settings.copy(fastMode = it))
+                onToggle = {
+                    onSettingsChange(settings.copy(fastMode = !settings.fastMode))
                 }
             )
             if (settings.fastMode) {
-                Text(
-                    text = "Which version to fetch",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 4.dp)
+                MorpheDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.Tune,
+                    title = "Which version to fetch",
+                    value = settings.fastModePolicy.title,
+                    onClick = { fastModePolicyDialog = true }
                 )
-                FastModePolicy.entries.forEach { policy ->
-                    SettingsOptionCard(
-                        icon = when (policy) {
-                            FastModePolicy.REQUESTED -> Icons.Outlined.Tune
-                            FastModePolicy.LATEST -> Icons.Outlined.TrendingUp
-                            FastModePolicy.ALWAYS_ASK -> Icons.Outlined.HelpOutline
+            }
+        }
+    }
+}
+
+/**
+ * Appearance tab: theme mode and wallpaper-derived colors, mirroring the
+ * manager's own appearance tab.
+ */
+@Composable
+private fun AppearanceTabContent(
+    settings: HelperSettings,
+    onSettingsChange: (HelperSettings) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingMedium)
+    ) {
+        SettingsGroup(title = "Theme", icon = Icons.Outlined.Palette) {
+            ThemeMode.entries.forEachIndexed { index, mode ->
+                if (index > 0) MorpheDivider()
+                SettingsRow(
+                    icon = mode.icon(),
+                    title = mode.title,
+                    subtitle = mode.description,
+                    onClick = { onSettingsChange(settings.copy(themeMode = mode)) },
+                    trailing = { RadioDot(selected = settings.themeMode == mode) }
+                )
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MorpheDivider()
+                SettingsSwitchItem(
+                    icon = Icons.Outlined.Palette,
+                    title = "Material You colors",
+                    subtitle = "Tint the app from your wallpaper instead of the default blue accent.",
+                    checked = settings.dynamicColors,
+                    onToggle = {
+                        onSettingsChange(settings.copy(dynamicColors = !settings.dynamicColors))
+                    }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Advanced tab: scanning, logging, source reachability plus past hand-offs and
+ * request logs  the manager's troubleshooting corner.
+ */
+@Composable
+private fun AdvancedTabContent(
+    settings: HelperSettings,
+    onSettingsChange: (HelperSettings) -> Unit,
+    logs: List<RequestLogEntry>,
+    onClearLogs: () -> Unit,
+    historyEntries: List<DownloadHistoryEntry>,
+    onOpenHistoryEntry: (DownloadHistoryEntry) -> Unit,
+    onShareHistoryEntry: (DownloadHistoryEntry) -> Unit,
+    onClearHistory: () -> Unit
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingMedium)
+    ) {
+        SettingsGroup(title = "VirusTotal", icon = Icons.Outlined.Shield) {
+            SettingsSwitchItem(
+                icon = Icons.Outlined.Shield,
+                title = "VirusTotal scanning",
+                subtitle = "Scan downloaded files with VirusTotal before returning them to Morphe.",
+                checked = settings.virusTotalEnabled,
+                onToggle = {
+                    onSettingsChange(settings.copy(virusTotalEnabled = !settings.virusTotalEnabled))
+                }
+            )
+            if (settings.virusTotalEnabled) {
+                VirusTotalScanMode.entries.forEach { mode ->
+                    MorpheDivider()
+                    SettingsRow(
+                        icon = when (mode) {
+                            VirusTotalScanMode.NEVER -> Icons.Outlined.Block
+                            VirusTotalScanMode.ASK -> Icons.Outlined.HelpOutline
+                            VirusTotalScanMode.ALWAYS -> Icons.Outlined.CheckCircle
                         },
-                        title = policy.title,
-                        description = policy.description,
-                        selected = settings.fastModePolicy == policy,
-                        onClick = {
-                            onSettingsChange(settings.copy(fastModePolicy = policy))
-                        }
+                        title = mode.title,
+                        subtitle = mode.description,
+                        onClick = { onSettingsChange(settings.copy(virusTotalScanMode = mode)) },
+                        trailing = { RadioDot(selected = settings.virusTotalScanMode == mode) }
                     )
+                }
+                MorpheDivider()
+                ApiKeyEditor(
+                    apiKey = settings.virusTotalApiKey,
+                    onApiKeyChange = { onSettingsChange(settings.copy(virusTotalApiKey = it)) }
+                )
+                if (settings.virusTotalApiKey.isNotBlank()) {
+                    MorpheDivider()
+                    Box(modifier = Modifier.padding(MorpheDefaults.ContentPadding)) {
+                        VirusTotalQuotaCard(apiKey = settings.virusTotalApiKey)
+                    }
                 }
             }
         }
 
-        SettingsGroupCard("Logging") {
-            SettingSwitchRow(
+        SettingsGroup(title = "Logging", icon = Icons.Outlined.BugReport) {
+            SettingsSwitchItem(
                 icon = Icons.Outlined.BugReport,
                 title = "Log to Logcat",
-                description = "Write request, result, and source HTTP details to the system log (adb logcat) for debugging.",
+                subtitle = "Write request, result, and source HTTP details to the system log (adb logcat) for debugging.",
                 checked = settings.logcatLogging,
-                onCheckedChange = {
-                    onSettingsChange(settings.copy(logcatLogging = it))
+                onToggle = {
+                    onSettingsChange(settings.copy(logcatLogging = !settings.logcatLogging))
                 }
+            )
+        }
+
+        SourceHealthCard()
+
+        DownloadHistorySection(
+            entries = historyEntries,
+            onClear = onClearHistory,
+            onOpen = onOpenHistoryEntry,
+            onShare = onShareHistoryEntry
+        )
+
+        RequestLogsCard(
+            logs = logs,
+            onClearLogs = onClearLogs
+        )
+    }
+}
+
+/** API key entry plus the manager link, laid out as a group row. */
+@Composable
+private fun ApiKeyEditor(
+    apiKey: String,
+    onApiKeyChange: (String) -> Unit
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = MorpheDefaults.ContentPadding,
+                vertical = MorpheDefaults.ContentPaddingSmall + 4.dp
+            ),
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
+    ) {
+        Text(
+            text = "API key",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = onApiKeyChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface
+            ),
+            placeholder = {
+                Text(
+                    "Enter API key",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
+                .clickable {
+                    val open = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://docs.virustotal.com/docs/please-give-me-an-api-key")
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    runCatching { context.startActivity(open) }
+                        .onFailure {
+                            Toast.makeText(
+                                context,
+                                "No browser available",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                }
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "How to get a free API key",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.Outlined.OpenInNew,
+                contentDescription = "Open VirusTotal API key guide",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
             )
         }
     }
 }
 
+
+
+/**
+ * One settings section: the manager's `SectionTitle` over a single group card
+ * holding compact rows separated by dividers.
+ */
 @Composable
-private fun SettingsGroupCard(
+private fun SettingsGroup(
     title: String,
+    icon: ImageVector,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // No card background: the group is just a section title followed by its
-    // individual option rows, which carry their own card styling.
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPadding)
     ) {
-        SectionTitle(title)
-        content()
+        MorpheSectionTitle(text = title, icon = icon)
+        SectionCard {
+            Column(content = content)
+        }
     }
+}
+
+/**
+ * Compact settings row in the manager's `SettingsItem` language: icon, title and
+ * subtitle, with either a trailing value/chevron (opens a dialog) or a caller
+ * supplied trailing control such as a switch.
+ */
+@Composable
+private fun SettingsRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    value: String? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MorpheDefaults.SettingsCornerRadius))
+            .then(
+                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+            )
+            .padding(
+                horizontal = MorpheDefaults.ContentPadding,
+                vertical = MorpheDefaults.ContentPaddingSmall + 4.dp
+            ),
+        horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPadding)
+    ) {
+        ThemedIcon(icon = icon, modifier = Modifier.padding(top = 2.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.onSurface
+            )
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
+            }
+            value?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.primary
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier.align(Alignment.CenterVertically),
+            contentAlignment = Alignment.Center
+        ) {
+            if (trailing != null) trailing() else if (onClick != null) ForwardChevronIcon(size = MorpheDefaults.IconSizeSmall)
+        }
+    }
+}
+
+/** [SettingsRow] trailed by a switch that reflects [checked]; tapping the row toggles it. */
+@Composable
+private fun SettingsSwitchItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    val enabledLabel = "Enabled"
+    val disabledLabel = "Disabled"
+    SettingsRow(
+        icon = icon,
+        title = title,
+        subtitle = subtitle,
+        onClick = onToggle,
+        trailing = {
+            Box(
+                modifier = Modifier.semantics { stateDescription = if (checked) enabledLabel else disabledLabel }
+            ) {
+                MorpheToggleSwitch(checked = checked, onCheckedChange = null)
+            }
+        }
+    )
+}
+
+/** One option offered by [SettingsChoiceDialog]. */
+private data class SettingsChoice(
+    val icon: ImageVector,
+    val title: String,
+    val description: String
+)
+
+/**
+ * Multi-choice settings are picked in a dialog rather than as a stack of full
+ * width cards, which is what keeps the manager's tabs scannable.
+ */
+@Composable
+private fun SettingsChoiceDialog(
+    title: String,
+    choices: List<SettingsChoice>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(text = title, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
+            ) {
+                choices.forEachIndexed { index, choice ->
+                    SettingsOptionCard(
+                        icon = choice.icon,
+                        title = choice.title,
+                        description = choice.description,
+                        selected = index == selectedIndex,
+                        onClick = { onSelect(index) }
+                    )
+                }
+            }
+        },
+        confirmButton = {}
+    )
 }
 
 private fun DownloadLocation.icon(): ImageVector = when (this) {
@@ -6597,14 +6840,17 @@ private fun IconTabCard(
     }
 }
 
+/**
+ * Settings tabs, mirroring the manager's three-tab organisation: appearance,
+ * how files come and go, and the troubleshooting/scanning corner.
+ */
 private enum class SettingsTab(
     val label: String,
     val icon: ImageVector
 ) {
-    Settings("Settings", Icons.Outlined.Tune),
-    Health("Health", Icons.Outlined.VerifiedUser),
-    History("History", Icons.Outlined.History),
-    Logs("Logs", Icons.Outlined.BugReport)
+    APPEARANCE("Appearance", Icons.Outlined.Palette),
+    ADVANCED("Advanced", Icons.Outlined.Tune),
+    SYSTEM("System", Icons.Outlined.PhoneAndroid)
 }
 
 @Composable
