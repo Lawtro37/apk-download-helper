@@ -140,6 +140,49 @@ internal fun archiveFreshness(
     return ArchiveFreshness(label = label, stale = stale)
 }
 
+/**
+ * A source's newest release, phrased for its card: the bundle version and the
+ * day it was published, e.g. `v1.21.5 · 8 Sep 2026`.
+ *
+ * Both come from the repo's own changelog entry rather than the index build, so a
+ * source whose row has gone stale still shows the release it actually ships. That
+ * is what makes the newest-release-first ordering visible instead of implied.
+ *
+ * Returns null when the bundle declares no release at all, rather than inventing one.
+ */
+internal fun formatBundleRelease(changes: ArchiveChanges?): String? {
+    val title = changes?.title?.trim().orEmpty()
+    val version = title.substringBefore(" (").trim()
+        .takeIf { it.isNotEmpty() }
+        // Bundles write the version bare; the `v` reads as a version rather than a
+        // number in a line that also carries a patch count and a date.
+        ?.let { if (it.first().isDigit()) "v$it" else it }
+    // The date field is the reliable one; the parenthesised part of the title is
+    // the fallback for bundles that never set it.
+    val date = formatBundleDate(changes?.date)
+        ?: formatBundleDate(title.substringAfter('(', "").substringBefore(')').trim())
+    return listOfNotNull(version, date).takeIf { it.isNotEmpty() }?.joinToString(" \u00b7 ")
+}
+
+/** `2026-09-08` as `8 Sep 2026`, or the value unchanged when it is not a date. */
+private fun formatBundleDate(value: String?): String? {
+    val raw = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val utc = TimeZone.getTimeZone("UTC")
+    val parsed = runCatching {
+        SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            .apply {
+                timeZone = utc
+                isLenient = false
+            }
+            .parse(raw)
+    }.getOrNull() ?: return raw
+    // Formatted in UTC as well: the bundle's date is a calendar day, so rendering
+    // it in local time would name the previous day anywhere west of Greenwich.
+    return SimpleDateFormat("d MMM yyyy", Locale.US)
+        .apply { timeZone = utc }
+        .format(parsed)
+}
+
 /** The archive's own `%Y-%m-%d %H:%M UTC` stamp, or null when it is not that. */
 private fun parseArchiveTimestamp(value: String?): Long? {
     val trimmed = value?.trim()?.removeSuffix("UTC")?.trim() ?: return null

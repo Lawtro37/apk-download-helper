@@ -5141,11 +5141,21 @@ private fun AppSourceCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    // The release is what ranks this card against the mirrors, so it
+                    // is shown rather than left for the user to infer from the order.
                     Text(
-                        text = "${source.patches.size} " +
-                            (if (source.patches.size == 1) "patch" else "patches"),
+                        text = buildString {
+                            append("${source.patches.size} ")
+                            append(if (source.patches.size == 1) "patch" else "patches")
+                            formatBundleRelease(source.latestChanges)?.let { release ->
+                                append(" \u00b7 ")
+                                append(release)
+                            }
+                        },
                         color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (mirrors.isNotEmpty()) {
                         Text(
