@@ -29,6 +29,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -47,11 +50,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +86,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -93,6 +100,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 /**
@@ -125,6 +133,9 @@ internal object MorpheDefaults {
 
     /** Height of a dialog action button. */
     val DialogButtonHeight = TallTouchTarget
+
+    /** Width that keeps a compact action aligned with a wider icon + label sibling. */
+    val CompactButtonWidth = 96.dp
 
     val ContentPaddingSmall = 8.dp
     val ContentPadding = 16.dp
@@ -723,6 +734,67 @@ internal fun MorpheSelectorRow(
     }
 }
 
+/**
+ * Pill-shaped action button with an icon and optional label  the manager's `ActionPillButton`,
+ * shared by the compact card actions.
+ */
+@Composable
+internal fun MorphePillButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    enabled: Boolean = true,
+    tall: Boolean = false,
+    tone: SemanticTone = SemanticTone.Neutral
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val height = if (tall) MorpheDefaults.PillHeightLarge else MorpheDefaults.PillHeight
+    val iconSize = if (tall) 20.dp else 18.dp
+
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = MorpheDefaults.PillShape,
+        color = if (enabled) tone.container else tone.container.copy(alpha = 0.4f),
+        contentColor = if (enabled) tone.content else tone.content.copy(alpha = 0.5f),
+        interactionSource = interactionSource,
+        modifier = modifier
+            .height(height)
+            .pressScale(interactionSource = interactionSource, enabled = enabled)
+            .semantics { role = Role.Button }
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = MorpheDefaults.ContentPadding),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.size(iconSize)
+                )
+                label?.let {
+                    Text(
+                        text = it,
+                        style = if (tall) {
+                            MaterialTheme.typography.labelLarge
+                        } else {
+                            MaterialTheme.typography.labelSmall
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Centred stat box: a bold value over an optional caption. */
 @Composable
 internal fun InfoStatBox(
@@ -916,6 +988,180 @@ internal fun MorpheEmptyState(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Semantic tones and status badges  ports of the manager's `StatusBadge.kt`
+// ---------------------------------------------------------------------------
+
+/**
+ * Semantic colour roles shared by everything that carries a tint: badges, notices and status
+ * rows. One definition, so the same meaning cannot read as two different colours in two
+ * screens.
+ */
+internal enum class SemanticTone {
+    Neutral,
+    Primary,
+    Success,
+    Warning,
+    Error;
+
+    /** Background of a filled element in this role. */
+    val container: Color
+        @Composable get() = when (this) {
+            Neutral -> MaterialTheme.colorScheme.surfaceVariant
+            Primary -> MaterialTheme.colorScheme.primaryContainer
+            Success -> MaterialTheme.colorScheme.tertiaryContainer
+            Warning -> MaterialTheme.colorScheme.secondaryContainer
+            Error -> MaterialTheme.colorScheme.errorContainer
+        }
+
+    /** Content drawn on top of [container]. */
+    val content: Color
+        @Composable get() = when (this) {
+            Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
+            Primary -> MaterialTheme.colorScheme.onPrimaryContainer
+            Success -> MaterialTheme.colorScheme.onTertiaryContainer
+            Warning -> MaterialTheme.colorScheme.onSecondaryContainer
+            Error -> MaterialTheme.colorScheme.onErrorContainer
+        }
+
+    /** Standalone colour for text or icons carrying the role without a filled background. */
+    val accent: Color
+        @Composable get() = when (this) {
+            Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
+            Primary -> MaterialTheme.colorScheme.primary
+            Success -> MaterialTheme.colorScheme.tertiary
+            Warning -> MaterialTheme.colorScheme.secondary
+            Error -> MaterialTheme.colorScheme.error
+        }
+}
+
+/** Sizing shared by every badge, so badges line up wherever they end up side by side. */
+private object BadgeDefaults {
+    val HorizontalPadding = 10.dp
+    val VerticalPadding = 4.dp
+    val IconSize = 14.dp
+    val ItemSpacing = 5.dp
+}
+
+/**
+ * Filter chip for the lists that narrow down  the manager's `AppFilterChip`. Carries a fill of
+ * its own rather than the platform's transparent one, which would show the raised surface back
+ * and leave only a hairline to say a button is there.
+ */
+@Composable
+internal fun MorpheFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    selectedIcon: ImageVector = Icons.Outlined.Done
+) {
+    val scheme = MaterialTheme.colorScheme
+
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        modifier = modifier,
+        leadingIcon = if (selected) {
+            { Icon(selectedIcon, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        } else {
+            null
+        },
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = scheme.surfaceColorAtElevation(2.dp),
+            labelColor = scheme.onSurfaceVariant,
+            selectedContainerColor = scheme.primaryContainer,
+            selectedLabelColor = scheme.onPrimaryContainer,
+            selectedLeadingIconColor = scheme.onPrimaryContainer
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = scheme.outline.copy(alpha = 0.5f),
+            selectedBorderColor = scheme.primary,
+            selectedBorderWidth = 1.dp
+        )
+    )
+}
+
+/**
+ * Inline status marker, sized to its content.
+ *
+ * @param text Badge label, or null for a badge that is only its [icon]  dropping the label is
+ *   for markers sharing a row with badges that need the room for their own words.
+ * @param tone Semantic colour role
+ * @param containerColor Background override, for badges drawn over custom artwork
+ * @param contentColor Content override, paired with [containerColor]
+ * @param onClick Makes the badge act as a control
+ */
+@Composable
+internal fun MorpheStatusBadge(
+    text: String?,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    tone: SemanticTone = SemanticTone.Neutral,
+    containerColor: Color = tone.container,
+    contentColor: Color = tone.content,
+    onClick: (() -> Unit)? = null
+) {
+    // Zero-width spaces so long tokens break at "/" and "." instead of overflowing the pill.
+    val breakableText = remember(text) {
+        text?.replace("/", "/\u200B")?.replace(".", ".\u200B")
+    }
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(percent = 50))
+            .background(containerColor)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(
+                horizontal = BadgeDefaults.HorizontalPadding,
+                vertical = BadgeDefaults.VerticalPadding
+            ),
+        horizontalArrangement = Arrangement.spacedBy(BadgeDefaults.ItemSpacing),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        icon?.let {
+            ThemedIcon(icon = it, tint = contentColor, size = BadgeDefaults.IconSize)
+        }
+        breakableText?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelMedium,
+                color = contentColor,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Badges on a line of their own, wrapping onto the next one when they run out of room.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun MorpheStatusBadgeRow(
+    modifier: Modifier = Modifier,
+    content: @Composable FlowRowScope.() -> Unit
+) {
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(BadgeDefaults.ItemSpacing),
+        verticalArrangement = Arrangement.spacedBy(BadgeDefaults.ItemSpacing),
+        content = content
+    )
+}
+
 /**
  * Semi-transparent dialog action button (the manager's `AppDialogButton` family), shared by
  * every confirmation surface in the helper.
@@ -1035,8 +1281,48 @@ internal val MorpheDialogContentPadding = PaddingValues(
     vertical = MorpheDefaults.ContentPadding
 )
 
-/** Shared dialog properties: dismiss on back/outside, wrapped in the theme's dialog text colour. */
+/**
+ * Shared dialog properties: dismiss on back/outside, sized by the caller's own surface.
+ */
 internal val MorpheDialogProperties = DialogProperties(usePlatformDefaultWidth = false)
+
+/**
+ * Dialog chrome shared by the helper's dialogs: manager surface, title, content and optional
+ * actions, so call sites stop hand-assembling their own dialog layout.
+ */
+@Composable
+internal fun MorpheDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    actions: (@Composable RowScope.() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = MorpheDialogProperties) {
+        MorpheDialogSurface(modifier = modifier.fillMaxWidth(0.92f)) {
+            Column(
+                modifier = Modifier.padding(MorpheDialogContentPadding),
+                verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPadding)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = LocalDialogTextColor.current
+                )
+                content()
+                actions?.let { actions ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = actions
+                    )
+                }
+            }
+        }
+    }
+}
 
 /** Wraps dialog content so nested rows resolve their text colour from the surface. */
 @Composable

@@ -189,6 +189,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalDensity
@@ -2098,19 +2099,6 @@ internal fun File.uniqueChild(fileName: String): File {
     return candidate
 }
 
-private object HelperDefaults {
-    val CardCornerRadius = 16.dp
-    val CompactCornerRadius = 12.dp
-    val SectionCornerRadius = 18.dp
-    val ButtonCornerRadius = 16.dp
-    val ContentPadding = 16.dp
-    val ContentPaddingSmall = 8.dp
-    val ItemSpacing = 12.dp
-    val IconSizeSmall = 20.dp
-    val ButtonHeight = 52.dp
-    val ActionClearWidth = 96.dp
-}
-
 @Composable
 private fun HelperTheme(
     themeMode: ThemeMode,
@@ -2123,7 +2111,6 @@ private fun HelperTheme(
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
     }
-    helperDarkTheme = dark
     helperDynamicColors = dynamicColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val colorScheme = when {
         dynamicColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
@@ -2162,22 +2149,6 @@ private fun HelperTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = MorpheTypography,
-        content = content
-    )
-}
-
-@Composable
-private fun HelperCard(
-    modifier: Modifier = Modifier,
-    cornerRadius: Dp = HelperDefaults.CardCornerRadius,
-    color: Color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-    content: @Composable () -> Unit
-) {
-    SurfaceCard(
-        modifier = modifier,
-        elevation = MorpheDefaults.CardElevation,
-        cornerRadius = cornerRadius,
-        color = color,
         content = content
     )
 }
@@ -2332,12 +2303,12 @@ private fun CaptchaBrowserScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = HelperDefaults.ContentPadding, vertical = HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                .padding(horizontal = MorpheDefaults.ContentPadding, vertical = MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -2365,18 +2336,33 @@ private fun CaptchaBrowserScreen(
                     text = "Close",
                     onClick = onClose,
                     icon = Icons.Outlined.Close,
-                    modifier = Modifier.widthIn(min = 96.dp)
+                    modifier = Modifier.widthIn(min = MorpheDefaults.CompactButtonWidth)
                 )
             }
-            InfoCard(
-                if (candidate.captchaUrl != null && !candidate.directDownload) {
-                    "Solve the captcha in the browser. When the page starts the download, " +
-                        "the file is captured and returned to Morphe automatically." 
-                } else {
-                    "Find the download link in the web page. The app will handle the download." +
-                        "\npackage: \"${candidate.packageName}\"\nversion: \"${candidate.versionDisplay}\"."
+            if (candidate.captchaUrl != null && !candidate.directDownload) {
+                InfoBox(title = "Solve the captcha", icon = Icons.Outlined.Shield) {
+                    Text(
+                        text = "When the page starts the download, the file is captured and " +
+                            "returned to Morphe automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-            )
+            } else {
+                InfoBox(title = "Find the download link", icon = Icons.Outlined.OpenInBrowser) {
+                    Text(
+                        text = "The app downloads the file once the page offers it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "package \"${candidate.packageName}\" · version " +
+                            "\"${candidate.versionDisplay}\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             if (progress > 0 && progress < 100) {
                 LinearProgressIndicator(
                     progress = { progress / 100f },
@@ -2388,7 +2374,7 @@ private fun CaptchaBrowserScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(HelperDefaults.SectionCornerRadius))
+                    .clip(RoundedCornerShape(MorpheDefaults.SectionCornerRadius))
             )
         }
     }
@@ -2544,13 +2530,13 @@ private fun HelperScreen(
                     .fillMaxWidth()
                     .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = HelperDefaults.ContentPadding, vertical = HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                .padding(horizontal = MorpheDefaults.ContentPadding, vertical = MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                    horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
@@ -2633,7 +2619,7 @@ private fun HelperScreen(
 
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionTitle("App info", Icons.Outlined.Smartphone)
+                    MorpheSectionTitle(text = "App info", icon = Icons.Outlined.Smartphone)
                     AppInfoCard(
                         request = request,
                         onFormatSelected = onRequestFileTypeChange
@@ -2777,11 +2763,11 @@ private fun SourceHealthCard() {
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -2794,7 +2780,7 @@ private fun SourceHealthCard() {
                 text = if (checking) "Checking…" else "Re-check",
                 onClick = { SourceHealthChecker.refresh() },
                 icon = if (checking) null else Icons.Outlined.Refresh,
-                modifier = Modifier.width(HelperDefaults.ActionClearWidth + 28.dp)
+                modifier = Modifier.width(MorpheDefaults.CompactButtonWidth + 28.dp)
             )
         }
         Text(
@@ -2821,7 +2807,7 @@ private fun SourceHealthCard() {
 private fun SourceHealthRow(check: SourceHealthChecker.Check) {
     val (dotColor, statusText) = when (check.status) {
         SourceHealthChecker.Status.Good -> MaterialTheme.colorScheme.primary to "Available"
-        SourceHealthChecker.Status.Checking -> warningAccent() to "Checking…"
+        SourceHealthChecker.Status.Checking -> SemanticTone.Warning.accent to "Checking…"
         SourceHealthChecker.Status.CaptchaBlocked ->
             MaterialTheme.colorScheme.error to (check.message ?: "Blocked by a captcha challenge")
         SourceHealthChecker.Status.Unreachable ->
@@ -2831,7 +2817,7 @@ private fun SourceHealthRow(check: SourceHealthChecker.Check) {
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall),
+        horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall),
         verticalAlignment = Alignment.Top
     ) {
         Box(
@@ -2870,16 +2856,16 @@ private fun HistoryEntryCard(
 ) {
     val context = LocalContext.current
     var showScanResult by remember { mutableStateOf(false) }
-    HelperCard(cornerRadius = HelperDefaults.CompactCornerRadius) {
+    SurfaceCard(cornerRadius = MorpheDefaults.CompactCornerRadius) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                .padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
                 verticalAlignment = Alignment.Top
             ) {
                 Column(
@@ -2923,78 +2909,56 @@ private fun HistoryEntryCard(
                 overflow = TextOverflow.Ellipsis
             )
             entry.scanVerdict?.let { verdict ->
+                val verdictTone = when {
+                    verdict.malicious -> SemanticTone.Error
+                    verdict.failed -> SemanticTone.Warning
+                    else -> SemanticTone.Success
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
                         .then(if (verdict.result != null) {
                             Modifier.clickable { showScanResult = true }
                         } else {
                             Modifier
-                        })
-                        .padding(vertical = 2.dp),
+                        }),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
                 ) {
-                    Icon(
-                        imageVector = when {
+                    ThemedIcon(
+                        icon = when {
                             verdict.malicious -> Icons.Outlined.Warning
                             verdict.failed -> Icons.Outlined.HelpOutline
                             else -> Icons.Outlined.CheckCircle
                         },
-                        contentDescription = null,
-                        tint = when {
-                            verdict.malicious -> MaterialTheme.colorScheme.error
-                            verdict.failed -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        modifier = Modifier.size(14.dp)
+                        size = 16.dp,
+                        tint = verdictTone.accent
                     )
                     Text(
                         text = verdict.label,
                         style = MaterialTheme.typography.bodySmall,
-                        color = when {
-                            verdict.malicious -> MaterialTheme.colorScheme.error
-                            verdict.failed -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (verdict.malicious) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
                     verdict.result?.let { result ->
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = if (result.cached) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            }
-                        ) {
-                            Text(
-                                text = if (result.cached) "Cached" else "Fresh",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (result.cached) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            contentDescription = "View scan details",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
+                        MorpheStatusBadge(
+                            text = if (result.cached) "Cached report" else "Fresh scan",
+                            tone = if (result.cached) SemanticTone.Primary else SemanticTone.Neutral
                         )
+                        ForwardChevronIcon(size = 16.dp)
                     }
                 }
             }
             if (usable) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                    horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
                 ) {
                     HelperButton(
                         text = "Share",
@@ -3008,7 +2972,8 @@ private fun HistoryEntryCard(
                         icon = Icons.Outlined.FolderOpen,
                         modifier = Modifier.weight(1f)
                     )
-                }                } else {
+                }
+            } else {
                 Text(
                     text = "File no longer available (temporary hand-off files are cleaned up after Morphe copies them).",
                     color = MaterialTheme.colorScheme.error,
@@ -3020,32 +2985,32 @@ private fun HistoryEntryCard(
 
     val savedResult = entry.scanVerdict?.result
     if (showScanResult && savedResult != null) {
-        AlertDialog(
-            onDismissRequest = { showScanResult = false },
-            confirmButton = {},
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    ScanResultCard(
-                        scanResult = savedResult,
-                        detail = scanResultDetail(savedResult),
-                        isMalicious = savedResult is VirusTotalScanner.ScanResult.Malicious,
-                        onProceed = {},
-                        onCancel = {},
-                        readOnly = true
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    HelperButton(
-                        text = "Close",
-                        onClick = { showScanResult = false },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+        MorpheDialog(
+            title = "Scan result",
+            onDismiss = { showScanResult = false },
+            actions = {
+                HelperButton(
+                    text = "Close",
+                    onClick = { showScanResult = false },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-        )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                ScanResultCard(
+                    scanResult = savedResult,
+                    detail = scanResultDetail(savedResult),
+                    isMalicious = savedResult is VirusTotalScanner.ScanResult.Malicious,
+                    onProceed = {},
+                    onCancel = {},
+                    readOnly = true
+                )
+            }
+        }
     }
 }
 
@@ -3069,7 +3034,7 @@ private fun HelperSettingsScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = HelperDefaults.ContentPadding, vertical = HelperDefaults.ContentPadding)
+            .padding(horizontal = MorpheDefaults.ContentPadding, vertical = MorpheDefaults.ContentPadding)
             .pointerInput(swipeThresholdPx) {
                 var totalDrag = 0f
                 detectHorizontalDragGestures(
@@ -3083,7 +3048,7 @@ private fun HelperSettingsScreen(
                     onDragCancel = { totalDrag = 0f }
                 )
             },
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
     ) {
         item {
             Box(
@@ -3523,7 +3488,7 @@ private fun ApiKeyEditor(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
+                .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
                 .clickable {
                     val open = Intent(
                         Intent.ACTION_VIEW,
@@ -4114,7 +4079,7 @@ private fun VirusTotalQuotaCard(apiKey: String) {
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
+        shape = RoundedCornerShape(MorpheDefaults.CardCornerRadius),
         color = sourceCardFill(),
         border = BorderStroke(1.dp, sourceCardBorder())
     ) {
@@ -4200,17 +4165,17 @@ private fun QuotaBar(
 ) {
     val colors = MaterialTheme.colorScheme
     val ratio = if (allowed > 0) used.toFloat() / allowed else 0f
+    val warningAccent = SemanticTone.Warning.accent
     val baseColor = when {
         ratio >= 0.9f -> colors.error
-        ratio >= 0.7f -> Color(0xFFE0A030)
+        ratio >= 0.7f -> warningAccent
         else -> colors.primary
     }
     // When near the cap, pulse the bar between amber and a dim amber so the
     // mid-scan warning is visible even without looking at the number.
     val barColor = if (flash) {
         val transition = rememberInfiniteTransition(label = "quota-flash-$label")
-        val amber = Color(0xFFE0A030)
-        amber.copy(
+        warningAccent.copy(
             alpha = transition.animateFloat(
                 initialValue = 1f,
                 targetValue = 0.3f,
@@ -4434,11 +4399,11 @@ private object MorpheFavourites {
 /** Sticky disclaimer pinned above the archive list. */
 @Composable
 private fun AppDisclaimerBanner() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.22f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f))
+    SurfaceCard(
+        cornerRadius = MorpheDefaults.CompactCornerRadius,
+        borderWidth = 1.dp,
+        borderColor = SemanticTone.Warning.accent.copy(alpha = 0.35f),
+        color = SemanticTone.Warning.container.copy(alpha = 0.6f)
     ) {
         Row(
             modifier = Modifier
@@ -4447,11 +4412,10 @@ private fun AppDisclaimerBanner() {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.Top
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(18.dp)
+            ThemedIcon(
+                icon = Icons.Outlined.Warning,
+                size = 18.dp,
+                tint = SemanticTone.Warning.accent
             )
             Text(
                 text = "Patch index maintained by the community. Use at your own risk. " +
@@ -4521,10 +4485,10 @@ private fun AppBrowserScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
             .padding(
-                horizontal = HelperDefaults.ContentPadding,
-                vertical = HelperDefaults.ContentPadding
+                horizontal = MorpheDefaults.ContentPadding,
+                vertical = MorpheDefaults.ContentPadding
             ),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -4620,7 +4584,7 @@ private fun AppBrowserScreen(
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp
                         )
-                        Spacer(Modifier.width(HelperDefaults.ContentPaddingSmall))
+                        Spacer(Modifier.width(MorpheDefaults.ContentPaddingSmall))
                         Text(
                             "Loading app index…",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -4704,7 +4668,7 @@ private fun AppBrowserScreen(
                                     // Keep the last row clear of the floating
                                     // "Go to top" button.
                                     contentPadding = PaddingValues(bottom = 64.dp),
-                                    verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                                    verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
                                 ) {
                                     items(filtered, key = { it.packageName }) { app ->
                                         AppBrowserRow(
@@ -4925,69 +4889,47 @@ private fun AppDetailView(
     }
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
     ) {
         item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
-                color = sourceCardFill(),
-                border = BorderStroke(1.dp, sourceCardBorder())
-            ) {
-                Row(
-                    modifier = Modifier.padding(HelperDefaults.ContentPadding),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AppAvatar(
-                        packageName = app.packageName,
-                        initial = app.name.firstOrNull()?.uppercaseChar() ?: '?'
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = app.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+            SectionCard {
+                IconTextRow(
+                    modifier = Modifier.padding(MorpheDefaults.ContentPadding),
+                    leadingContent = {
+                        AppAvatar(
+                            packageName = app.packageName,
+                            initial = app.name.firstOrNull()?.uppercaseChar() ?: '?'
                         )
-                        Text(
-                            text = app.packageName,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = buildString {
-                                append("${app.sourceCount} ")
-                                append(if (app.sourceCount == 1) "source" else "sources")
-                                if (app.versions.isNotEmpty()) {
-                                    append(" · ${app.versions.size} ")
-                                    append(if (app.versions.size == 1) "version" else "versions")
-                                }
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    // Open the Play Store listing, same as the Play source's
-                    // action, so users can see the official page for the app.
-                    Icon(
-                        imageVector = Icons.Outlined.Storefront,
-                        contentDescription = "Open in Play Store",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
+                    },
+                    title = app.name,
+                    description = buildString {
+                        append(app.packageName)
+                        append(" · ${app.sourceCount} ")
+                        append(if (app.sourceCount == 1) "source" else "sources")
+                        if (app.versions.isNotEmpty()) {
+                            append(" · ${app.versions.size} ")
+                            append(if (app.versions.size == 1) "version" else "versions")
+                        }
+                    },
+                    titleStyle = MaterialTheme.typography.titleLarge,
+                    titleWeight = FontWeight.Bold,
+                    // Open the Play Store listing, same as the Play source's action, so
+                    // users can see the official page for the app.
+                    trailingContent = {
+                        HelperIconButton(
+                            icon = Icons.Outlined.Storefront,
+                            contentDescription = "Open in Play Store",
+                            onClick = {
                                 context.openPlayStoreListing(app.packageName, playStoreUrl(app.packageName))
                             }
-                            .padding(10.dp)
-                    )
-                }
+                        )
+                    }
+                )
             }
         }
         if (app.versions.isNotEmpty()) {
             item {
-                SectionTitle("Versions", Icons.Outlined.History)
+                MorpheSectionTitle(text = "Versions", icon = Icons.Outlined.History)
                 Text(
                     text = app.versions.joinToString(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -4996,10 +4938,10 @@ private fun AppDetailView(
             }
         }
         if (app.sources.isEmpty()) {
-            item { InfoCard("No patch sources listed for this app.") }
+            item { MorpheEmptyState(message = "No patch sources listed for this app.") }
         } else {
             item {
-                SectionTitle("Sources", Icons.Outlined.Dns)
+                MorpheSectionTitle(text = "Sources", icon = Icons.Outlined.Dns)
             }
             items(app.sources, key = { it.repo }) { source ->
                 AppSourceCard(
@@ -5025,11 +4967,9 @@ private fun AppSourceCard(
 ) {
     var expanded by remember(source.repo) { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
-        color = sourceCardFill(),
-        border = BorderStroke(1.dp, sourceCardBorder())
+    SettingsItemCard(
+        onClick = null,
+        borderWidth = 1.dp
     ) {
         Column(
             modifier = Modifier.padding(vertical = 10.dp),
@@ -5075,23 +5015,24 @@ private fun AppSourceCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall)
+                horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
             ) {
                 source.addUrl?.takeIf { it.isNotBlank() }?.let { addUrl ->
-                    SourceActionButton(
-                        text = "Add to Morphe",
-                        icon = Icons.Outlined.Add,
-                        outlined = false,
+                    MorphePillButton(
                         onClick = { onAddToMorphe(addUrl) },
+                        icon = Icons.Outlined.Add,
+                        contentDescription = "Add to Morphe",
+                        label = "Add to Morphe",
+                        tone = SemanticTone.Primary,
                         modifier = Modifier.weight(1f)
                     )
                 }
                 source.webUrl?.takeIf { it.isNotBlank() }?.let { webUrl ->
-                    SourceActionButton(
-                        text = "Open repo",
-                        icon = Icons.Outlined.OpenInNew,
-                        outlined = true,
+                    MorphePillButton(
                         onClick = { onOpenUrl(webUrl) },
+                        icon = Icons.Outlined.OpenInNew,
+                        contentDescription = "Open repo",
+                        label = "Open repo",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -5164,48 +5105,6 @@ private fun AppSourceCard(
                     }
                 }
             }
-        }
-    }
-}
-
-/** Compact action button used in the app-detail source cards. */
-@Composable
-private fun SourceActionButton(
-    text: String,
-    icon: ImageVector,
-    outlined: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius)
-    Surface(
-        onClick = onClick,
-        modifier = modifier.height(34.dp).clip(shape),
-        shape = shape,
-        color = if (outlined) Color.Transparent else colors.primary.copy(alpha = 0.22f),
-        contentColor = colors.onSurface,
-        border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.4f))
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (outlined) colors.onSurfaceVariant else colors.primary,
-                modifier = Modifier.size(14.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface,
-                maxLines = 1
-            )
         }
     }
 }
@@ -5284,7 +5183,7 @@ private fun ReuseOfferDialog(
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall)
+                verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall)
             ) {
                 Text(
                     text = "A previous download for this exact version is still available. Pick one to return to Morphe without downloading again.",
@@ -5295,9 +5194,9 @@ private fun ReuseOfferDialog(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
+                            .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
                             .clickable { onUseExisting(option) },
-                        shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius),
+                        shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius),
                         color = sourceCardFill(),
                         border = BorderStroke(1.dp, sourceCardBorder())
                     ) {
@@ -5341,30 +5240,30 @@ private fun ReuseOfferDialog(
                             entry.scanVerdict?.let { verdict ->
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ContentPaddingSmall),
                                     modifier = Modifier.padding(top = 3.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = when {
+                                    ThemedIcon(
+                                        icon = when {
                                             verdict.malicious -> Icons.Outlined.Warning
                                             verdict.failed -> Icons.Outlined.HelpOutline
                                             else -> Icons.Outlined.CheckCircle
                                         },
-                                        contentDescription = null,
+                                        size = 16.dp,
                                         tint = when {
-                                            verdict.malicious -> MaterialTheme.colorScheme.error
-                                            verdict.failed -> MaterialTheme.colorScheme.onSurfaceVariant
-                                            else -> MaterialTheme.colorScheme.primary
-                                        },
-                                        modifier = Modifier.size(13.dp)
+                                            verdict.malicious -> SemanticTone.Error.accent
+                                            verdict.failed -> SemanticTone.Warning.accent
+                                            else -> SemanticTone.Success.accent
+                                        }
                                     )
                                     Text(
                                         text = verdict.label,
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Medium,
-                                        color = when {
-                                            verdict.malicious -> MaterialTheme.colorScheme.error
-                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (verdict.malicious) {
+                                            MaterialTheme.colorScheme.error
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
                                         },
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
@@ -5418,11 +5317,11 @@ private fun AppInfoCard(
     request: HelperRequest,
     onFormatSelected: (String) -> Unit
 ) {
-    HelperCard(cornerRadius = HelperDefaults.SectionCornerRadius) {
+    SurfaceCard(cornerRadius = MorpheDefaults.SectionCornerRadius) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(HelperDefaults.ContentPadding),
+                .padding(MorpheDefaults.ContentPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             AppInfoHeader(request, onFormatSelected)
@@ -5555,13 +5454,12 @@ private fun AppInfoStatCard(
     modifier: Modifier = Modifier,
     subtext: String? = null
 ) {
-    val shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius)
     // The manager's BundleInfoCard: a tinted container holding a small label
-    // above a medium-weight value.
-    Surface(
-        modifier = modifier.clip(shape),
-        shape = shape,
-        color = MaterialTheme.colorScheme.secondaryContainer
+    // above a medium-weight value, on the shared warning tone.
+    SurfaceCard(
+        modifier = modifier,
+        cornerRadius = MorpheDefaults.CompactCornerRadius,
+        color = SemanticTone.Warning.container
     ) {
         Column(
             modifier = Modifier
@@ -5571,14 +5469,14 @@ private fun AppInfoStatCard(
         ) {
             Text(
                 text = label,
-                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
+                color = SemanticTone.Warning.content.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.labelSmall
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                color = SemanticTone.Warning.content,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -5599,7 +5497,7 @@ private fun AppInfoFormatCard(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius)
+    val shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius)
     val current = kinds.firstOrNull() ?: "apk"
     var expanded by rememberSaveable(kinds) { mutableStateOf(false) }
 
@@ -5693,7 +5591,7 @@ private fun AppInfoFormatCard(
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
                             .clickable {
                                 onSelect(kind)
                                 expanded = false
@@ -5708,7 +5606,7 @@ private fun AppInfoFormatCard(
 
 @Composable
 private fun AppInfoArchCard(abis: List<String>) {
-    val shape = RoundedCornerShape(HelperDefaults.CompactCornerRadius)
+    val shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius)
     var expanded by rememberSaveable { mutableStateOf(false) }
     val displayAbis = abis.takeIf { it.isNotEmpty() } ?: listOf("Default")
 
@@ -5763,13 +5661,9 @@ private fun AppInfoArchCard(abis: List<String>) {
                 )
             }
             AnimatedExpand(visible = expanded) {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                MorpheStatusBadgeRow(modifier = Modifier.fillMaxWidth()) {
                     displayAbis.forEach { abi ->
-                        HelperChip(text = abi)
+                        MorpheStatusBadge(text = abi)
                     }
                 }
             }
@@ -5975,11 +5869,6 @@ private fun AnimatedExpand(
 }
 
 @Composable
-private fun SectionTitle(title: String, icon: ImageVector? = null) {
-    MorpheSectionTitle(text = title, icon = icon)
-}
-
-@Composable
 private fun LoadingState() {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -6023,7 +5912,7 @@ private fun SourcePickerFlow(
         SideEffect { onPrimaryActionChanged(null) }
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             InfoCard(
                 "All sources are disabled. Enable at least one source in " +
@@ -6078,7 +5967,7 @@ private fun SourcePickerFlow(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Tapping the title toggles the source cards.
@@ -6090,7 +5979,7 @@ private fun SourcePickerFlow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SectionTitle("Download source", Icons.Outlined.Dns)
+                    MorpheSectionTitle(text = "Download source", icon = Icons.Outlined.Dns)
                     if (!sourcesExpanded) {
                         Text(
                             text = "· ${groups.size}",
@@ -6311,7 +6200,7 @@ private fun SourceGrid(
             if (catGroups.isEmpty()) return@forEach
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionTitle(title)
+                MorpheSectionTitle(text = title)
                 catGroups.chunked(2).forEach { rowGroups ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -6372,10 +6261,8 @@ private fun SourceMenuHeader(title: String) {
     )
 }
 
-// Tracks the active dark/light and Material You states (themeMode-aware) so
-// non-scheme helpers like the source-card fill can adapt with the rest of the
-// UI  wallpaper-tinted surfaces when dynamic colors are on.
-private var helperDarkTheme by mutableStateOf(true)
+// Tracks the active Material You state (themeMode-aware) so non-scheme helpers can
+// adapt with the rest of the UI  wallpaper-tinted surfaces when dynamic colors are on.
 private var helperDynamicColors by mutableStateOf(false)
 
 /**
@@ -6677,7 +6564,7 @@ private fun SourcePageContent(
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionTitle("Version type", Icons.Outlined.Tune)
+            MorpheSectionTitle(text = "Version type", icon = Icons.Outlined.Tune)
             VersionTypeRow(
                 tabs = subTabs,
                 selected = safeTab,
@@ -6906,9 +6793,9 @@ private fun AboutModeCard(tab: SourceSubTab) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(HelperDefaults.CompactCornerRadius))
+                    .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
                     .clickable { expanded = !expanded }
-                    .padding(horizontal = HelperDefaults.ContentPadding, vertical = 14.dp),
+                    .padding(horizontal = MorpheDefaults.ContentPadding, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -6983,12 +6870,12 @@ private fun VersionHistoryRow(
     onSolveCaptcha: (DownloadCandidate) -> Unit
 ) {
     val context = LocalContext.current
-    HelperCard(cornerRadius = HelperDefaults.CompactCornerRadius) {
+    SurfaceCard(cornerRadius = MorpheDefaults.CompactCornerRadius) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(HelperDefaults.ContentPadding),
-            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                .padding(MorpheDefaults.ContentPadding),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
@@ -7112,20 +6999,16 @@ private fun CandidateResolveSection(
 
 
 
+/**
+ * Informational paragraph  the manager's `InfoBox` container, kept as the helper's one-line
+ * note component.
+ */
 @Composable
 private fun InfoCard(text: String) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    ) {
-        Text(
-            text = text,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(MorpheDefaults.ContentPadding)
-        )
-    }
+    InfoBox(
+        title = text,
+        titleColor = MaterialTheme.colorScheme.onSurfaceVariant
+    ) {}
 }
 
 private enum class HistoryFilter(val label: String) {
@@ -7152,11 +7035,11 @@ private fun DownloadHistorySection(
     }
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -7168,7 +7051,7 @@ private fun DownloadHistorySection(
             HelperOutlinedButton(
                 text = "Clear",
                 onClick = onClear,
-                modifier = Modifier.width(HelperDefaults.ActionClearWidth)
+                modifier = Modifier.width(MorpheDefaults.CompactButtonWidth)
             )
         }
 
@@ -7182,46 +7065,12 @@ private fun DownloadHistorySection(
                     HistoryFilter.Scanned -> entries.count { it.scanVerdict != null }
                     HistoryFilter.Flagged -> entries.count { it.scanVerdict?.malicious == true }
                 }
-                val selected = f == filter
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(50))
-                        .clickable { filter = f },
-                    // Passing the shape to the Surface (not just clipping) makes
-                    // the border follow the rounded outline; without it the
-                    // border is drawn as a rectangle and cut at the rounded
-                    // ends, which reads as a clipped border.
-                    shape = RoundedCornerShape(50),
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                    } else {
-                        sourceCardFill()
-                    },
-                    border = BorderStroke(
-                        width = if (selected) 1.5.dp else 1.dp,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            sourceCardBorder()
-                        }
-                    )
-                ) {
-                    Text(
-                        text = "${f.label} · $count",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 9.dp)
-                    )
-                }
+                MorpheFilterChip(
+                    selected = f == filter,
+                    onClick = { filter = f },
+                    label = "${f.label} · $count",
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
@@ -7257,11 +7106,11 @@ private fun RequestLogsCard(
     val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -7287,19 +7136,19 @@ private fun RequestLogsCard(
             HelperOutlinedButton(
                 text = "Clear",
                 onClick = onClearLogs,
-                modifier = Modifier.width(HelperDefaults.ActionClearWidth)
+                modifier = Modifier.width(MorpheDefaults.CompactButtonWidth)
             )
         }
 
         if (logs.isEmpty()) {
             InfoCard("No logs yet.")
         } else {
-            HelperCard(cornerRadius = HelperDefaults.CompactCornerRadius) {
+            SurfaceCard(cornerRadius = MorpheDefaults.CompactCornerRadius) {
                 SelectionContainer {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(HelperDefaults.ContentPadding),
+                            .padding(MorpheDefaults.ContentPadding),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         logs.takeLast(80).forEach { entry ->
@@ -7428,17 +7277,17 @@ private fun CandidateCard(
     if (bareLink) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             body()
         }
     } else {
-        HelperCard(cornerRadius = HelperDefaults.SectionCornerRadius) {
+        SurfaceCard(cornerRadius = MorpheDefaults.SectionCornerRadius) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(HelperDefaults.ContentPadding),
-                verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                    .padding(MorpheDefaults.ContentPadding),
+                verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
             ) {
                 body()
             }
@@ -7451,62 +7300,57 @@ private fun CandidateInfoChips(request: HelperRequest, candidate: DownloadCandid
     val requestedVersionNames = request.requestedVersionNames
     val requestedVersionCodes = request.requestedVersionCodes
     val versionTone = when {
-        requestedVersionNames.isEmpty() -> ChipTone.Success
+        requestedVersionNames.isEmpty() -> SemanticTone.Success
         candidate.versionName != null && requestedVersionNames.any { candidate.versionName.versionNameEquals(it) } -> {
-            ChipTone.Success
+            SemanticTone.Success
         }
-        else -> ChipTone.Error
+        else -> SemanticTone.Error
     }
     val versionCodeTone = when {
-        requestedVersionCodes.isEmpty() -> ChipTone.Success
-        candidate.versionCode in requestedVersionCodes -> ChipTone.Success
-        else -> ChipTone.Error
+        requestedVersionCodes.isEmpty() -> SemanticTone.Success
+        candidate.versionCode in requestedVersionCodes -> SemanticTone.Success
+        else -> SemanticTone.Error
     }
     val formatTone = when {
-        candidate.fileKind.equals("web", ignoreCase = true) -> ChipTone.Neutral
-        request.acceptsFormat(candidate.fileKind) -> ChipTone.Success
-        else -> ChipTone.Error
+        candidate.fileKind.equals("web", ignoreCase = true) -> SemanticTone.Neutral
+        request.acceptsFormat(candidate.fileKind) -> SemanticTone.Success
+        else -> SemanticTone.Error
     }
 
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall),
-        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ContentPaddingSmall)
-    ) {
+    MorpheStatusBadgeRow(modifier = Modifier.fillMaxWidth()) {
         candidate.versionName?.let {
-            HelperChip(text = "Version $it", tone = versionTone)
+            MorpheStatusBadge(text = "Version $it", tone = versionTone)
         }
         if (candidate.versionCode != null) {
-            HelperChip(text = "Code ${candidate.versionCode}", tone = versionCodeTone)
+            MorpheStatusBadge(text = "Code ${candidate.versionCode}", tone = versionCodeTone)
         }
         if (candidate.versionName == null && candidate.versionCode == null) {
-            HelperChip(text = candidate.versionDisplay, tone = versionTone)
+            MorpheStatusBadge(text = candidate.versionDisplay, tone = versionTone)
         }
         if (!candidate.fileKind.equals("web", ignoreCase = true)) {
-            HelperChip(text = candidate.fileKind.uppercase(), tone = formatTone)
+            MorpheStatusBadge(text = candidate.fileKind.uppercase(), tone = formatTone)
         }
         candidate.variantLabel?.let { label ->
-            HelperChip(text = label, tone = ChipTone.Neutral)
+            MorpheStatusBadge(text = label, tone = SemanticTone.Neutral)
         }
     }
 }
 
 @Composable
 private fun CandidateMatchBox(match: CandidateMatchSummary) {
-    val tone = if (match.matches) ChipTone.Success else ChipTone.Error
-    val containerColor = toneContainer(tone)
-    val contentColor = toneContent(tone)
+    val tone = if (match.matches) SemanticTone.Success else SemanticTone.Error
 
-    HelperCard(
-        cornerRadius = HelperDefaults.CompactCornerRadius,
-        color = containerColor
+    SurfaceCard(
+        cornerRadius = MorpheDefaults.CompactCornerRadius,
+        color = tone.container
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(HelperDefaults.ItemSpacing),
+                .padding(MorpheDefaults.ItemSpacing),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(match.title, color = contentColor, fontWeight = FontWeight.Bold)
+            Text(match.title, color = tone.content, fontWeight = FontWeight.Bold)
             match.details.forEach { detail ->
                 Text(
                     text = detail,
@@ -7519,67 +7363,13 @@ private fun CandidateMatchBox(match: CandidateMatchSummary) {
 }
 
 @Composable
-private fun HelperChip(text: String, tone: ChipTone = ChipTone.Neutral) {
-    val containerColor = toneContainer(tone)
-    val contentColor = toneContent(tone)
-    val borderColor = toneBorder(tone)
-
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = containerColor,
-        contentColor = contentColor,
-        border = BorderStroke(1.dp, borderColor)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = HelperDefaults.ItemSpacing, vertical = 7.dp)
-        )
-    }
-}
-
-private enum class ChipTone {
-    Neutral,
-    Success,
-    Error
-}
-
-@Composable
-private fun toneContainer(tone: ChipTone): Color = when (tone) {
-    ChipTone.Neutral -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
-    ChipTone.Success -> if (helperDarkTheme) Color(0xFF12382D) else Color(0xFFC8E6C9)
-    ChipTone.Error -> if (helperDarkTheme) Color(0xFF432023) else Color(0xFFFFCDD2)
-}
-
-@Composable
-private fun toneContent(tone: ChipTone): Color = when (tone) {
-    ChipTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
-    ChipTone.Success -> if (helperDarkTheme) Color(0xFF79DEAF) else Color(0xFF1B5E20)
-    ChipTone.Error -> if (helperDarkTheme) Color(0xFFFFB3AC) else Color(0xFFB71C1C)
-}
-
-@Composable
-private fun toneBorder(tone: ChipTone): Color = when (tone) {
-    ChipTone.Neutral -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    ChipTone.Success -> toneContent(ChipTone.Success).copy(alpha = if (helperDarkTheme) 0.34f else 0.35f)
-    ChipTone.Error -> toneContent(ChipTone.Error).copy(alpha = if (helperDarkTheme) 0.34f else 0.35f)
-}
-
-@Composable
-private fun warningAccent(): Color =
-    if (helperDarkTheme) Color(0xFFFFD166) else Color(0xFF9A6700)
-
-@Composable
 private fun CheckingPickedFileState(state: UiState.CheckingPickedFile) {
-    HelperCard {
+    SurfaceCard {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(HelperDefaults.ContentPadding),
-            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                .padding(MorpheDefaults.ContentPadding),
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
@@ -7605,16 +7395,16 @@ private fun FastModeCard(
     onSkipScan: () -> Unit,
     onChooseVersion: (FastModePolicy) -> Unit
 ) {
-    HelperCard(cornerRadius = HelperDefaults.SectionCornerRadius) {
+    SurfaceCard(cornerRadius = MorpheDefaults.SectionCornerRadius) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                .padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
+                horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
@@ -7650,50 +7440,35 @@ private fun FastModeCard(
             // bytes matched the source-published hash (not just the transient
             // post-download status line).
             if (progress.shaVerified) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                ) {
-                    Box(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Verified,
-                            contentDescription = "SHA-256 verified",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
+                MorpheStatusBadge(
+                    text = null,
+                    icon = Icons.Outlined.Verified,
+                    tone = SemanticTone.Primary,
+                    modifier = Modifier.semantics { contentDescription = "SHA-256 verified" }
+                )
             }
             if (progress.awaitingVersionChoice) {
                 Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shape = MaterialTheme.shapes.small
+                    color = SemanticTone.Primary.container,
+                    contentColor = SemanticTone.Primary.content,
+                    shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(HelperDefaults.ContentPadding),
-                        verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                            .padding(MorpheDefaults.ContentPadding),
+                        verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Tune,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = progress.versionChoiceDetail
-                                    ?: "Which version should Fast Mode fetch?",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
+                        IconTextRow(
+                            leadingContent = {
+                                ThemedIcon(icon = Icons.Outlined.Tune, size = 20.dp)
+                            },
+                            title = progress.versionChoiceDetail
+                                ?: "Which version should Fast Mode fetch?",
+                            titleStyle = MaterialTheme.typography.bodyMedium,
+                            titleWeight = FontWeight.Normal,
+                            titleColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                         progress.versionChoiceRequested?.let { requested ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -7716,7 +7491,7 @@ private fun FastModeCard(
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                    horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
                 ) {
                     HelperButton(
                         text = "Requested version",
@@ -7737,31 +7512,30 @@ private fun FastModeCard(
                 )
             } else if (progress.awaitingDecision) {
                 Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    shape = MaterialTheme.shapes.small
+                    color = SemanticTone.Error.container,
+                    contentColor = SemanticTone.Error.content,
+                    shape = RoundedCornerShape(MorpheDefaults.CompactCornerRadius)
                 ) {
-                    Row(
+                    IconTextRow(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(HelperDefaults.ContentPadding),
-                        horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Warning,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = progress.mismatchDetail ?: "Version code mismatch.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
+                            .padding(MorpheDefaults.ContentPadding),
+                        leadingContent = {
+                            ThemedIcon(
+                                icon = Icons.Outlined.Warning,
+                                size = 20.dp,
+                                tint = SemanticTone.Error.accent
+                            )
+                        },
+                        title = progress.mismatchDetail ?: "Version code mismatch.",
+                        titleStyle = MaterialTheme.typography.bodyMedium,
+                        titleWeight = FontWeight.Normal,
+                        titleColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+                    horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
                 ) {
                     HelperButton(
                         text = "Use this version",
@@ -7924,10 +7698,10 @@ private fun DownloadingState(
     onSkipWait: () -> Unit,
     onSkipScan: () -> Unit
 ) {
-    HelperCard {
+    SurfaceCard {
         Column(
-            modifier = Modifier.padding(HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+            modifier = Modifier.padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             val statusText = state.statusMessage ?: "Downloading from ${state.candidate.source.label}"
             val isScan = isScanStatus(statusText)
@@ -7997,32 +7771,12 @@ private fun ScanAskCard(
     onScan: () -> Unit,
     onSkip: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-    ) {
+    SectionCard {
         Column(
-            modifier = Modifier.padding(HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+            modifier = Modifier.padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Shield,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text(
-                    text = "Scan with VirusTotal?",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            MorpheSectionTitle(text = "Scan with VirusTotal?", icon = Icons.Outlined.Shield)
             Text(
                 text = "Check ${candidate.name} with VirusTotal before returning it to Morphe.",
                 style = MaterialTheme.typography.bodySmall,
@@ -8091,46 +7845,33 @@ private fun ScanResultCard(
     val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
     val isError = scanResult is VirusTotalScanner.ScanResult.Error
-    val containerColor = if (isMalicious) {
-        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
-    } else if (scanResult is VirusTotalScanner.ScanResult.Clean) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-    val borderColor = if (isMalicious) {
-        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
-    } else if (scanResult is VirusTotalScanner.ScanResult.Clean) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-    } else {
-        MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+    val tone = when {
+        isMalicious -> SemanticTone.Error
+        isError -> SemanticTone.Warning
+        else -> SemanticTone.Success
     }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(HelperDefaults.CardCornerRadius),
-        color = containerColor,
-        border = BorderStroke(1.dp, borderColor)
+    SurfaceCard(
+        cornerRadius = MorpheDefaults.SectionCornerRadius,
+        borderWidth = 1.dp,
+        borderColor = tone.accent.copy(alpha = 0.45f),
+        color = tone.container.copy(alpha = 0.35f)
     ) {
         Column(
-            modifier = Modifier.padding(HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+            modifier = Modifier.padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = when {
+                ThemedIcon(
+                    icon = when {
                         isMalicious || isError -> Icons.Outlined.Warning
                         else -> Icons.Outlined.CheckCircle
                     },
-                    contentDescription = null,
-                    tint = when {
-                        isMalicious || isError -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.primary
-                    },
-                    modifier = Modifier.size(20.dp)
+                    size = 20.dp,
+                    tint = tone.accent
                 )
                 Text(
                     text = when {
@@ -8142,43 +7883,18 @@ private fun ScanResultCard(
                     fontWeight = FontWeight.Bold
                 )
                 if (!isError) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = if (scanResult.cached) {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        }
-                    ) {
-                        Text(
-                            text = if (scanResult.cached) "Cached report" else "Fresh scan",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (scanResult.cached) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                        )
-                    }
+                    MorpheStatusBadge(
+                        text = if (scanResult.cached) "Cached report" else "Fresh scan",
+                        tone = if (scanResult.cached) SemanticTone.Primary else SemanticTone.Neutral
+                    )
                 }
                 if (shaVerified) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                    ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Verified,
-                                contentDescription = "SHA-256 verified",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    }
+                    MorpheStatusBadge(
+                        text = null,
+                        icon = Icons.Outlined.Verified,
+                        tone = SemanticTone.Primary,
+                        modifier = Modifier.semantics { contentDescription = "SHA-256 verified" }
+                    )
                 }
             }
             Text(
@@ -8246,10 +7962,7 @@ private fun ScanResultCard(
                 )
             }
             if (scanResult.apkResults.isNotEmpty()) {
-                androidx.compose.material3.HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = colors.outline.copy(alpha = 0.3f)
-                )
+                MorpheDivider(modifier = Modifier.padding(vertical = 4.dp), fullWidth = true)
                 Text(
                     text = "APK details",
                     style = MaterialTheme.typography.titleSmall,
@@ -8271,11 +7984,10 @@ private fun ScanResultCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = apkIcon,
-                            contentDescription = null,
-                            tint = apkVerdictColor,
-                            modifier = Modifier.size(14.dp)
+                        ThemedIcon(
+                            icon = apkIcon,
+                            size = 16.dp,
+                            tint = apkVerdictColor
                         )
                         Text(
                             text = apk.name,
@@ -8288,25 +8000,10 @@ private fun ScanResultCard(
                         // Distinguish a cached report (VirusTotal already had it) from a
                         // fresh upload so users can tell why an APK's scan was instant.
                         if (!apk.failed) {
-                            androidx.compose.material3.Surface(
-                                shape = RoundedCornerShape(50),
-                                color = if (apk.cached) {
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                }
-                            ) {
-                                Text(
-                                    text = if (apk.cached) "cached" else "fresh",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (apk.cached) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                )
-                            }
+                            MorpheStatusBadge(
+                                text = if (apk.cached) "cached" else "fresh",
+                                tone = if (apk.cached) SemanticTone.Primary else SemanticTone.Neutral
+                            )
                         }
                         Text(
                             text = if (apk.failed) "failed" else "${apk.detections}/${apk.totalEngines}",
@@ -8314,12 +8011,12 @@ private fun ScanResultCard(
                             color = apkVerdictColor
                         )
                         if (apk.sha256 != null) {
-                            Icon(
-                                imageVector = Icons.Outlined.OpenInNew,
+                            ThemedIcon(
+                                icon = Icons.Outlined.OpenInNew,
                                 contentDescription = "Open ${apk.name} in VirusTotal",
+                                size = 16.dp,
                                 tint = colors.primary,
                                 modifier = Modifier
-                                    .size(14.dp)
                                     .clip(RoundedCornerShape(50))
                                     .clickable { openVirusTotalPage(context, apk.sha256) }
                                     .padding(2.dp)
@@ -8412,7 +8109,7 @@ private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
                     .clickable {
                         clipboard?.setPrimaryClip(ClipData.newPlainText("SHA-256", hash))
                         hashCopied = true
@@ -8434,22 +8131,22 @@ private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(0.5f)
                 )
-                Icon(
-                    imageVector = if (hashCopied) Icons.Outlined.CheckCircle else Icons.Outlined.ContentCopy,
+                ThemedIcon(
+                    icon = if (hashCopied) Icons.Outlined.CheckCircle else Icons.Outlined.ContentCopy,
                     contentDescription = "Copy SHA-256",
+                    size = 16.dp,
                     tint = if (hashCopied) {
                         MaterialTheme.colorScheme.primary
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.size(16.dp)
+                    }
                 )
             }
             // Jump to the full report on virustotal.com.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(MorpheDefaults.CompactCornerRadius))
                     .clickable { openVirusTotalPage(context, hash) }
                     .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -8463,11 +8160,10 @@ private fun ScanMetaRows(scanResult: VirusTotalScanner.ScanResult) {
                     modifier = Modifier.weight(0.38f)
                 )
                 Spacer(modifier = Modifier.weight(0.5f))
-                Icon(
-                    imageVector = Icons.Outlined.OpenInNew,
+                ThemedIcon(
+                    icon = Icons.Outlined.OpenInNew,
                     contentDescription = "Open in VirusTotal",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
+                    size = 16.dp
                 )
             }
         }
@@ -8521,15 +8217,15 @@ private fun formatTransferEta(ms: Long): String {
 
 @Composable
 private fun ErrorState(message: String, onRefresh: () -> Unit, onCancel: () -> Unit) {
-    HelperCard {
+    SurfaceCard {
         Column(
-            modifier = Modifier.padding(HelperDefaults.ContentPadding),
-            verticalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+            modifier = Modifier.padding(MorpheDefaults.ContentPadding),
+            verticalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
         Text(text = message, color = MaterialTheme.colorScheme.error)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(HelperDefaults.ItemSpacing)
+            horizontalArrangement = Arrangement.spacedBy(MorpheDefaults.ItemSpacing)
         ) {
             HelperButton(
                 text = "Retry",
@@ -9124,7 +8820,7 @@ internal enum class VersionStatus(val label: String) {
 @Composable
 private fun LogLevel.color(): Color = when (this) {
     LogLevel.Info -> MaterialTheme.colorScheme.onSurfaceVariant
-    LogLevel.Warning -> warningAccent()
+    LogLevel.Warning -> SemanticTone.Warning.accent
     LogLevel.Error -> MaterialTheme.colorScheme.error
 }
 
